@@ -59,30 +59,30 @@ def _norm_display(mag):
 # Ch3 - intensity transformations
 # ---------------------------------------------------------------------------
 
-def negative(img, **p):
+def negative(img, **kwargs):
     return (255 - np.asarray(img)).astype(np.uint8)
 
 
-def log_transform(img, **p):
+def log_transform(img, **kwargs):
     return _to_uint8(255 * np.log1p(np.asarray(img, dtype=float)) / np.log(256))
 
 
-def power_law(img, gamma=0.4, **p):
+def power_law(img, gamma=0.4, **kwargs):
     return _to_uint8(255 * np.power(np.asarray(img, dtype=float) / 255, gamma))
 
 
-def contrast_stretch(img, lo=0, hi=255, **p):
+def contrast_stretch(img, lo=0, hi=255, **kwargs):
     return _to_uint8((np.asarray(img, dtype=float) - lo) * 255 / max(hi - lo, 1))
 
 
-def hist_eq(img, **p):
+def hist_eq(img, **kwargs):
     x = np.asarray(img)
     cdf = np.bincount(x.ravel(), minlength=256).cumsum()
     cdf = (cdf - cdf.min()) * 255 / max(cdf.max() - cdf.min(), 1)
     return cdf[x].astype(np.uint8)
 
 
-def bit_plane(img, plane=7, **p):
+def bit_plane(img, plane=7, **kwargs):
     return (((np.asarray(img) >> int(plane)) & 1) * 255).astype(np.uint8)
 
 
@@ -90,26 +90,26 @@ def bit_plane(img, plane=7, **p):
 # Ch3 - spatial smoothing
 # ---------------------------------------------------------------------------
 
-def box_filter(img, kernel=9, **p):
-    return _to_uint8(_convolve(img, np.ones((kernel, kernel)) / kernel ** 2))
+def box_filter(img, k=9, **kwargs):
+    return _to_uint8(_convolve(img, np.ones((k, k)) / k ** 2))
 
 
-def weighted_average(img, kernel=9, **p):
-    d = np.abs(np.arange(kernel) - (kernel - 1) / 2)
-    w = (kernel + 1) / 2 - d
+def weighted_average(img, k=9, **kwargs):
+    d = np.abs(np.arange(k) - (k - 1) / 2)
+    w = (k + 1) / 2 - d
     w /= w.sum()
     return _to_uint8(_convolve(img, np.outer(w, w)))
 
 
-def gaussian_blur(img, sigma=2.0, kernel=9, **p):
-    return _to_uint8(_convolve(img, _gauss_kernel(sigma, kernel)))
+def gaussian_blur(img, sigma=2.0, k=9, **kwargs):
+    return _to_uint8(_convolve(img, _gauss_kernel(sigma, k)))
 
 
 # ---------------------------------------------------------------------------
 # Ch3 - spatial sharpening
 # ---------------------------------------------------------------------------
 
-def laplacian(img, scale=1.0, **p):
+def laplacian(img, scale=1.0, **kwargs):
     lap = _convolve(img, np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]]))
     return _to_uint8(128 + scale * lap)  # centered view of the response
 
@@ -120,7 +120,7 @@ def _gradient_magnitude(img, gx_k, gy_k):
     return _norm_display(np.hypot(gx, gy))
 
 
-def sobel(img, **p):
+def sobel(img, **kwargs):
     return _gradient_magnitude(
         img,
         np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]),
@@ -128,7 +128,7 @@ def sobel(img, **p):
     )
 
 
-def prewitt(img, **p):
+def prewitt(img, **kwargs):
     return _gradient_magnitude(
         img,
         np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]]),
@@ -136,8 +136,8 @@ def prewitt(img, **p):
     )
 
 
-def _unsharp(img, sigma, amount, kernel):
-    blur = _convolve(img, _gauss_kernel(sigma, kernel))
+def _unsharp(img, sigma, amount, k):
+    blur = _convolve(img, _gauss_kernel(sigma, k))
     return _as_float(img) + amount * (_as_float(img) - blur)
 
 
@@ -145,12 +145,12 @@ def _as_float(img):
     return np.asarray(img, dtype=float)
 
 
-def unsharp_masking(img, sigma=2.0, amount=1.0, kernel=9, **p):
-    return _to_uint8(_unsharp(img, sigma, amount, kernel))
+def unsharp_masking(img, sigma=2.0, amount=1.0, k=9, **kwargs):
+    return _to_uint8(_unsharp(img, sigma, amount, k))
 
 
-def high_boost(img, sigma=2.0, A=1.5, kernel=9, **p):
-    blur = _convolve(img, _gauss_kernel(sigma, kernel))
+def high_boost(img, sigma=2.0, A=1.5, k=9, **kwargs):
+    blur = _convolve(img, _gauss_kernel(sigma, k))
     return _to_uint8(A * _as_float(img) - blur)
 
 
@@ -173,27 +173,27 @@ def _freq_grid(shape):
     return np.sqrt(u ** 2 + v ** 2)
 
 
-def _lp_mask(shape, cutoff, kind, order):
+def _lp_mask(shape, D_0, kind, n):
     D = _freq_grid(shape)
     if kind == "ideal":
-        return (D <= cutoff).astype(float)
+        return (D <= D_0).astype(float)
     if kind == "gaussian":
-        return np.exp(-D ** 2 / (2 * cutoff ** 2))
-    return 1 / (1 + (D / cutoff) ** (2 * order))  # butterworth
+        return np.exp(-D ** 2 / (2 * D_0 ** 2))
+    return 1 / (1 + (D / D_0) ** (2 * n))  # butterworth
 
 
-def _apply_freq(img, kind, cutoff, hp, order=2):
-    H = _lp_mask(img.shape, cutoff, kind, order)
+def _apply_freq(img, kind, D_0, hp, n=2):
+    H = _lp_mask(img.shape, D_0, kind, n)
     return _to_uint8(_ifft2(_fft2(img) * (1 - H if hp else H)))
 
 
 def _freq_filter(kind, hp):
-    def fn(img, cutoff=0.1, order=2, **p):
-        return _apply_freq(img, kind, cutoff, hp, order)
+    def fn(img, D_0=0.1, n=2, **kwargs):
+        return _apply_freq(img, kind, D_0, hp, n)
     return fn
 
 
-def fft_magnitude(img, **p):
+def fft_magnitude(img, **kwargs):
     F = np.log1p(np.abs(_fft2(img)))
     return _norm_display(F)
 
@@ -202,40 +202,40 @@ def fft_magnitude(img, **p):
 # Ch5 - noise + restoration
 # ---------------------------------------------------------------------------
 
-def add_gaussian_noise(img, sigma=20, **p):
+def add_gaussian_noise(img, sigma=20, **kwargs):
     return _to_uint8(np.asarray(img, dtype=float) + np.random.randn(*img.shape) * sigma)
 
 
-def add_salt_pepper(img, prob=0.05, **p):
+def add_salt_pepper(img, p=0.05, **kwargs):
     out = np.asarray(img).copy()
-    mask = np.random.random(img.shape) < prob
+    mask = np.random.random(img.shape) < p
     sp = np.random.random(img.shape) < 0.5
     out[mask & sp] = 0
     out[mask & ~sp] = 255
     return out
 
 
-def arithmetic_mean(img, kernel=9, **p):
-    return np.mean(_windows(img, kernel), axis=0).astype(np.uint8)
+def arithmetic_mean(img, k=9, **kwargs):
+    return np.mean(_windows(img, k), axis=0).astype(np.uint8)
 
 
-def geometric_mean(img, kernel=9, **p):
-    w = np.where(_windows(img, kernel) == 0, 1, _windows(img, kernel))
+def geometric_mean(img, k=9, **kwargs):
+    w = np.where(_windows(img, k) == 0, 1, _windows(img, k))
     return np.exp(np.mean(np.log(w), axis=0)).astype(np.uint8)
 
 
-def harmonic_mean(img, kernel=9, **p):
-    w = np.where(_windows(img, kernel) == 0, 1e-9, _windows(img, kernel))
+def harmonic_mean(img, k=9, **kwargs):
+    w = np.where(_windows(img, k) == 0, 1e-9, _windows(img, k))
     return (w.shape[0] / np.sum(1.0 / w, axis=0)).astype(np.uint8)
 
 
-def contraharmonic_mean(img, kernel=9, Q=1.5, **p):
-    w = _windows(img, kernel)
+def contraharmonic_mean(img, k=9, Q=1.5, **kwargs):
+    w = _windows(img, k)
     return (np.sum(w ** (Q + 1), axis=0) / np.sum(w ** Q, axis=0)).astype(np.uint8)
 
 
-def order_statistic(img, kind, kernel=9, alpha=0.25, **p):
-    w = _windows(img, kernel)
+def order_statistic(img, kind, k=9, alpha=0.25, **kwargs):
+    w = _windows(img, k)
     if kind == "median":
         out = np.median(w, axis=0)
     elif kind == "min":
@@ -246,24 +246,24 @@ def order_statistic(img, kind, kernel=9, alpha=0.25, **p):
         out = (w.min(axis=0) + w.max(axis=0)) / 2
     else:  # alpha-trimmed
         ws = np.sort(w, axis=0)
-        t = int(alpha * w.shape[0] / 2)
-        out = np.mean(ws[t:ws.shape[0] - t], axis=0)
+        T = int(alpha * w.shape[0] / 2)
+        out = np.mean(ws[T:ws.shape[0] - T], axis=0)
     return out.astype(np.uint8)
 
 
-def _alpha_trimmed(img, kernel=9, alpha=0.25, **p):
-    return order_statistic(img, "alpha", kernel, alpha)
+def _alpha_trimmed(img, k=9, alpha=0.25, **kwargs):
+    return order_statistic(img, "alpha", k, alpha)
 
 
 # ---------------------------------------------------------------------------
 # registry
 # ---------------------------------------------------------------------------
 
-KERNEL  = {"name": "kernel size", "min": 3, "max": 15, "default": 9, "step": 2, "int": True}
-GKERNEL = {"name": "kernel size", "min": 3, "max": 31, "default": 9, "step": 2, "int": True}
+KERNEL  = {"name": "k", "min": 3, "max": 15, "default": 9, "step": 2, "int": True}
+GKERNEL = {"name": "k", "min": 3, "max": 31, "default": 9, "step": 2, "int": True}
 SIGMA   = {"name": "sigma", "min": 0.5, "max": 10, "default": 2.0, "step": 0.1}
-CUTOFF  = {"name": "cutoff", "min": 0.01, "max": 0.5, "default": 0.1, "step": 0.01}
-ORDER   = {"name": "order", "min": 1, "max": 10, "default": 2, "step": 1, "int": True}
+CUTOFF  = {"name": "D_0", "min": 0.01, "max": 0.5, "default": 0.1, "step": 0.01}
+ORDER   = {"name": "n", "min": 1, "max": 10, "default": 2, "step": 1, "int": True}
 
 FILTERS = {
     # Ch3 - intensity
@@ -296,7 +296,7 @@ FILTERS = {
     "Ch4 · FFT magnitude":         {"fn": fft_magnitude, "params": [], "formula": r"\log\left( 1 + |F(u,v)| \right)"},
     # Ch5 - noise + restoration
     "Ch5 · Add Gaussian noise":    {"fn": add_gaussian_noise, "params": [{"name": "sigma", "min": 1, "max": 100, "default": 20, "step": 1, "int": True}], "formula": r"g = f + \sigma\,\varepsilon,\qquad \varepsilon \sim \mathcal{N}(0,1)"},
-    "Ch5 · Add salt-and-pepper":   {"fn": add_salt_pepper, "params": [{"name": "prob", "min": 0.01, "max": 0.5, "default": 0.05, "step": 0.01}], "formula": r"g = \begin{cases} 0 & \text{pepper (prob } p/2\text{)} \\ 255 & \text{salt (prob } p/2\text{)} \\ f & \text{otherwise} \end{cases}"},
+    "Ch5 · Add salt-and-pepper":   {"fn": add_salt_pepper, "params": [{"name": "p", "min": 0.01, "max": 0.5, "default": 0.05, "step": 0.01}], "formula": r"g = \begin{cases} 0 & \text{pepper (prob } p/2\text{)} \\ 255 & \text{salt (prob } p/2\text{)} \\ f & \text{otherwise} \end{cases}"},
     "Ch5 · Arithmetic mean":       {"fn": arithmetic_mean, "params": [KERNEL], "formula": r"\hat f = \frac{1}{k^2} \sum_{(s,t) \in S_{xy}} f(s,t)"},
     "Ch5 · Geometric mean":        {"fn": geometric_mean, "params": [KERNEL], "formula": r"\hat f = \left( \prod_{(s,t) \in S_{xy}} f(s,t) \right)^{1/k^2}"},
     "Ch5 · Harmonic mean":         {"fn": harmonic_mean, "params": [KERNEL], "formula": r"\hat f = \frac{k^2}{\sum_{(s,t) \in S_{xy}} \frac{1}{f(s,t)}}"},

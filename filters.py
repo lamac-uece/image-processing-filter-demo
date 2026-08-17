@@ -198,6 +198,34 @@ def fft_magnitude(img, **kwargs):
     return _norm_display(F)
 
 
+def fft_phase(img, **kwargs):
+    ang = np.angle(_fft2(img))  # -pi..pi
+    return _to_uint8((ang + np.pi) * 255 / (2 * np.pi))
+
+
+def fft_power(img, **kwargs):
+    return _norm_display(np.log1p(np.abs(_fft2(img)) ** 2))
+
+
+def _dct1(x):
+    """Orthonormal DCT-II along the last axis (FFT-based, no scipy)."""
+    N = x.shape[-1]
+    y = np.concatenate([x, x[..., ::-1]], axis=-1)
+    Y = np.fft.fft(y, axis=-1)[..., :N]
+    C = np.real(Y * np.exp(-1j * np.pi * np.arange(N) / (2 * N)))
+    C[..., 0] /= np.sqrt(2)
+    C *= np.sqrt(1.0 / (2 * N))
+    return C
+
+
+def _dct2(img):
+    return _dct1(_dct1(np.asarray(img, dtype=float)).T).T
+
+
+def dct2_magnitude(img, **kwargs):
+    return _norm_display(np.log1p(np.abs(_dct2(img))))
+
+
 # ---------------------------------------------------------------------------
 # Ch5 - noise + restoration
 # ---------------------------------------------------------------------------
@@ -256,6 +284,52 @@ def _alpha_trimmed(img, k=9, alpha=0.25, **kwargs):
 
 
 # ---------------------------------------------------------------------------
+# error metrics between two images (a = reference, b = estimate)
+# ---------------------------------------------------------------------------
+
+def _pair(a, b):
+    a = np.asarray(a, dtype=np.float64)
+    b = np.asarray(b, dtype=np.float64)
+    if a.shape != b.shape:
+        raise ValueError(f"shape mismatch: {a.shape} vs {b.shape}")
+    return a, b
+
+
+def mse(a, b):
+    a, b = _pair(a, b)
+    return float(np.mean((a - b) ** 2))
+
+
+def rmse(a, b):
+    return float(np.sqrt(mse(a, b)))
+
+
+def mae(a, b):
+    a, b = _pair(a, b)
+    return float(np.mean(np.abs(a - b)))
+
+
+def psnr(a, b):
+    m = mse(a, b)
+    return float("inf") if m == 0 else float(10 * np.log10(255 ** 2 / m))
+
+
+def snr(a, b):
+    a, b = _pair(a, b)
+    den = np.sum((a - b) ** 2)
+    return float("inf") if den == 0 else float(10 * np.log10(np.sum(a ** 2) / den))
+
+
+ERROR_METRICS = [
+    ("MSE",  mse,  r"\text{MSE} = \frac{1}{MN} \sum (f - \hat f)^2"),
+    ("RMSE", rmse, r"\text{RMSE} = \sqrt{\text{MSE}}"),
+    ("MAE",  mae,  r"\text{MAE} = \frac{1}{MN} \sum |f - \hat f|"),
+    ("PSNR", psnr, r"\text{PSNR} = 10 \log_{10} \frac{255^2}{\text{MSE}}"),
+    ("SNR",  snr,  r"\text{SNR} = 10 \log_{10} \frac{\sum f^2}{\sum (f - \hat f)^2}"),
+]
+
+
+# ---------------------------------------------------------------------------
 # registry
 # ---------------------------------------------------------------------------
 
@@ -294,6 +368,9 @@ FILTERS = {
     "Ch4 · Gaussian low-pass":     {"fn": _freq_filter("gaussian", False), "params": [CUTOFF], "formula": r"H(u,v) = e^{-D^2(u,v)/(2D_0^2)}"},
     "Ch4 · Gaussian high-pass":    {"fn": _freq_filter("gaussian", True), "params": [CUTOFF], "formula": r"H(u,v) = 1 - e^{-D^2(u,v)/(2D_0^2)}"},
     "Ch4 · FFT magnitude":         {"fn": fft_magnitude, "params": [], "formula": r"\log\left( 1 + |F(u,v)| \right)"},
+    "Ch4 · FFT phase":             {"fn": fft_phase, "params": [], "formula": r"\varphi(u,v) = \arctan\left( \frac{\operatorname{Im} F(u,v)}{\operatorname{Re} F(u,v)} \right)"},
+    "Ch4 · FFT power spectrum":    {"fn": fft_power, "params": [], "formula": r"P(u,v) = |F(u,v)|^2,\qquad \log\left( 1 + P \right)"},
+    "Ch4 · DCT (2D)":              {"fn": dct2_magnitude, "params": [], "formula": r"C(u,v) = \frac{2}{\sqrt{MN}}\, c_u c_v \sum_{x,y} f(x,y) \cos\frac{\pi u(2x+1)}{2M} \cos\frac{\pi v(2y+1)}{2N},\qquad \log(1+|C|)"},
     # Ch5 - noise + restoration
     "Ch5 · Add Gaussian noise":    {"fn": add_gaussian_noise, "params": [{"name": "sigma", "min": 1, "max": 100, "default": 20, "step": 1, "int": True}], "formula": r"g = f + \sigma\,\varepsilon,\qquad \varepsilon \sim \mathcal{N}(0,1)"},
     "Ch5 · Add salt-and-pepper":   {"fn": add_salt_pepper, "params": [{"name": "p", "min": 0.01, "max": 0.5, "default": 0.05, "step": 0.01}], "formula": r"g = \begin{cases} 0 & \text{pepper (prob } p/2\text{)} \\ 255 & \text{salt (prob } p/2\text{)} \\ f & \text{otherwise} \end{cases}"},
@@ -334,6 +411,28 @@ def demo():
     # FFT roundtrip + near-identity low-pass at max cutoff
     assert np.allclose(_ifft2(_fft2(x.astype(float))), x.astype(float), atol=1e-6)
     assert np.abs(_apply_freq(x, "gaussian", 0.5, False).astype(int) - x).max() <= 2
+
+    # other frequency views + DCT (reference orthonormal DCT-II for the check)
+    assert np.unique(fft_phase(np.full((8, 8), 100, np.uint8))).size == 1  # constant -> zero phase
+    assert fft_power(x).max() == 255
+    a = np.random.default_rng(0).random((5, 6))
+    def _dct_ref(img):
+        M, N = img.shape
+        def D(n):
+            u = np.arange(n)[:, None]; x = np.arange(n)[None, :]
+            c = np.where(u == 0, 1 / np.sqrt(2), 1.0)
+            return np.sqrt(2 / n) * c * np.cos(np.pi * u * (2 * x + 1) / (2 * n))
+        return D(M) @ img @ D(N).T
+    assert np.abs(_dct2(a) - _dct_ref(a)).max() < 1e-9
+
+    # error metrics
+    a = np.arange(16, dtype=float).reshape(4, 4); b = a + 10
+    assert mse(a, b) == 100.0
+    assert rmse(a, b) == 10.0
+    assert mae(a, b) == 10.0
+    assert psnr(a, b) == 10 * np.log10(255 ** 2 / 100)
+    assert snr(a, b) == 10 * np.log10(np.sum(a ** 2) / (16 * 100))
+    assert psnr(a, a) == float("inf")
 
     np.random.seed(0)
     y = add_salt_pepper(np.full((100, 100), 128, np.uint8), 0.1)

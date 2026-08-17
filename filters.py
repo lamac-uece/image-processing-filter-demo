@@ -56,6 +56,31 @@ def _norm_display(mag):
 
 
 # ---------------------------------------------------------------------------
+# Ch2 - resolution & bit depth (handout exercises 1-2)
+# ---------------------------------------------------------------------------
+
+def downsample(img, f=4, **kwargs):
+    """Nearest-neighbor downsample by f, then upsample back to the input size.
+
+    Pads the input to a multiple of f first, so the result always has the same
+    shape as the input (handout: images the same size as the original).
+    """
+    x = np.asarray(img)
+    f = int(f)
+    h, w = x.shape
+    xp = np.pad(x, ((0, (-h) % f), (0, (-w) % f)), mode="edge")
+    return np.kron(xp[::f, ::f], np.ones((f, f), dtype=np.uint8))[:h, :w]
+
+
+def bit_depth_reduce(img, b=4, **kwargs):
+    """Quantize gray levels to 2**b (full-range scaling, b in [1, 7])."""
+    b = int(b)
+    x = np.asarray(img, dtype=np.float64)
+    q = np.round(x * (2 ** b - 1) / 255) * (255.0 / (2 ** b - 1))
+    return q.astype(np.uint8)
+
+
+# ---------------------------------------------------------------------------
 # Ch3 - intensity transformations
 # ---------------------------------------------------------------------------
 
@@ -243,6 +268,35 @@ def add_salt_pepper(img, p=0.05, **kwargs):
     return out
 
 
+def add_uniform_noise(img, A=30, **kwargs):
+    """Zero-mean uniform noise in [-A, A] (handout: p(z) = 1/(2A))."""
+    return _to_uint8(np.asarray(img, dtype=float) + np.random.uniform(-A, A, img.shape))
+
+
+def add_erlang_noise(img, a=0.1, b=2, **kwargs):
+    """Zero-mean Erlang/Gamma noise: shape b, rate a (handout: mean b/a)."""
+    z = np.random.gamma(b, 1.0 / a, img.shape) - b / a
+    return _to_uint8(np.asarray(img, dtype=float) + z)
+
+
+def add_exponential_noise(img, a=0.1, **kwargs):
+    """Zero-mean exponential noise, rate a (Erlang with b=1; mean 1/a)."""
+    z = np.random.exponential(1.0 / a, img.shape) - 1.0 / a
+    return _to_uint8(np.asarray(img, dtype=float) + z)
+
+
+def add_rayleigh_noise(img, b=200, **kwargs):
+    """Zero-mean Rayleigh noise (handout: scale sigma = sqrt(b/2), mean sqrt(pi*b)/2)."""
+    z = np.random.rayleigh(np.sqrt(b / 2.0), img.shape) - 0.5 * np.sqrt(np.pi * b)
+    return _to_uint8(np.asarray(img, dtype=float) + z)
+
+
+def add_poisson_noise(img, mu=50, **kwargs):
+    """Zero-mean Poisson noise, intensity mu (mean = variance = mu)."""
+    z = np.random.poisson(mu, img.shape).astype(np.float64) - mu
+    return _to_uint8(np.asarray(img, dtype=float) + z)
+
+
 def arithmetic_mean(img, k=9, **kwargs):
     return np.mean(_windows(img, k), axis=0).astype(np.uint8)
 
@@ -284,6 +338,17 @@ def _alpha_trimmed(img, k=9, alpha=0.25, **kwargs):
 
 
 # ---------------------------------------------------------------------------
+# information measures
+# ---------------------------------------------------------------------------
+
+def entropy(img):
+    """Shannon entropy of the gray-level histogram, in bits."""
+    p = np.bincount(np.asarray(img).ravel(), minlength=256)
+    p = p[p > 0] / p.sum()
+    return float(-(p * np.log2(p)).sum())
+
+
+# ---------------------------------------------------------------------------
 # error metrics between two images (a = reference, b = estimate)
 # ---------------------------------------------------------------------------
 
@@ -320,12 +385,52 @@ def snr(a, b):
     return float("inf") if den == 0 else float(10 * np.log10(np.sum(a ** 2) / den))
 
 
+def me(a, b):
+    """Maximum error (handout)."""
+    a, b = _pair(a, b)
+    return float(np.max(np.abs(a - b)))
+
+
+def nmse(a, b):
+    """Normalized mean square error (handout)."""
+    a, b = _pair(a, b)
+    den = np.sum(a ** 2)
+    return float("inf") if den == 0 else float(np.sum((a - b) ** 2) / den)
+
+
+def covariance(a, b):
+    """Covariance sigma_fg (handout)."""
+    a, b = _pair(a, b)
+    return float(np.mean((a - a.mean()) * (b - b.mean())))
+
+
+def correlation(a, b):
+    """Correlation coefficient rho = sigma_fg / (sigma_f * sigma_g) (handout)."""
+    a, b = _pair(a, b)
+    num = np.sum((a - a.mean()) * (b - b.mean()))
+    den = np.sqrt(np.sum((a - a.mean()) ** 2) * np.sum((b - b.mean()) ** 2))
+    if den == 0:
+        return 1.0 if np.all(a == b) else 0.0
+    return float(num / den)
+
+
+def jaccard(a, b, delta=1):
+    """Fraction of pixels equal within tolerance delta (handout)."""
+    a, b = _pair(a, b)
+    return float(np.mean(np.abs(a - b) <= delta))
+
+
 ERROR_METRICS = [
-    ("MSE",  mse,  r"\text{MSE} = \frac{1}{MN} \sum (f - \hat f)^2"),
-    ("RMSE", rmse, r"\text{RMSE} = \sqrt{\text{MSE}}"),
-    ("MAE",  mae,  r"\text{MAE} = \frac{1}{MN} \sum |f - \hat f|"),
-    ("PSNR", psnr, r"\text{PSNR} = 10 \log_{10} \frac{255^2}{\text{MSE}}"),
-    ("SNR",  snr,  r"\text{SNR} = 10 \log_{10} \frac{\sum f^2}{\sum (f - \hat f)^2}"),
+    ("MSE",     mse,        r"\text{MSE} = \frac{1}{MN} \sum (f - \hat f)^2"),
+    ("RMSE",    rmse,       r"\text{RMSE} = \sqrt{\text{MSE}}"),
+    ("MAE",     mae,        r"\text{MAE} = \frac{1}{MN} \sum |f - \hat f|"),
+    ("ME",      me,         r"\text{ME} = \max |f - \hat f|"),
+    ("NMSE",    nmse,       r"\text{NMSE} = \frac{\sum (f-\hat f)^2}{\sum f^2}"),
+    ("PSNR",    psnr,       r"\text{PSNR} = 10 \log_{10} \frac{255^2}{\text{MSE}}"),
+    ("SNR",     snr,        r"\text{SNR} = 10 \log_{10} \frac{\sum f^2}{\sum (f - \hat f)^2}"),
+    ("Cov",     covariance, r"\sigma_{f\hat f} = \frac{1}{MN}\sum (f-\mu_f)(\hat f-\mu_{\hat f})"),
+    ("Corr",    correlation, r"\rho = \frac{\sigma_{f\hat f}}{\sigma_f \sigma_{\hat f}}"),
+    ("Jaccard", jaccard,    r"J = \frac{1}{MN}\sum \mathbf{1}[\,|f-\hat f| \le 1\,]"),
 ]
 
 
@@ -340,6 +445,9 @@ CUTOFF  = {"name": "D_0", "min": 0.01, "max": 0.5, "default": 0.1, "step": 0.01}
 ORDER   = {"name": "n", "min": 1, "max": 10, "default": 2, "step": 1, "int": True}
 
 FILTERS = {
+    # Ch2 - resolution & depth (handout exercises)
+    "Ch2 · Downsample (resolution)":   {"fn": downsample, "params": [{"name": "f", "min": 2, "max": 16, "default": 4, "step": 2, "int": True}], "formula": r"g = \text{nearest}(f):\quad N/f \times N/f \to N \times N"},
+    "Ch2 · Bit-depth reduction":       {"fn": bit_depth_reduce, "params": [{"name": "b", "min": 1, "max": 7, "default": 4, "step": 1, "int": True}], "formula": r"s = \operatorname{round}\left(\frac{r}{255}(2^b-1)\right)\frac{255}{2^b-1}"},
     # Ch3 - intensity
     "Ch3 · Negative":              {"fn": negative, "params": [], "formula": r"s = 255 - r"},
     "Ch3 · Log transform":         {"fn": log_transform, "params": [], "formula": r"s = c\,\log(1 + r),\qquad c = \frac{255}{\ln 256}"},
@@ -374,6 +482,14 @@ FILTERS = {
     # Ch5 - noise + restoration
     "Ch5 · Add Gaussian noise":    {"fn": add_gaussian_noise, "params": [{"name": "sigma", "min": 1, "max": 100, "default": 20, "step": 1, "int": True}], "formula": r"g = f + \sigma\,\varepsilon,\qquad \varepsilon \sim \mathcal{N}(0,1)"},
     "Ch5 · Add salt-and-pepper":   {"fn": add_salt_pepper, "params": [{"name": "p", "min": 0.01, "max": 0.5, "default": 0.05, "step": 0.01}], "formula": r"g = \begin{cases} 0 & \text{pepper (prob } p/2\text{)} \\ 255 & \text{salt (prob } p/2\text{)} \\ f & \text{otherwise} \end{cases}"},
+    "Ch5 · Add uniform noise":      {"fn": add_uniform_noise, "params": [{"name": "A", "min": 1, "max": 100, "default": 30, "step": 1, "int": True}], "formula": r"p(z) = \frac{1}{2A},\ z \in [-A, A],\quad g = f + z"},
+    "Ch5 · Add Erlang (gamma) noise": {"fn": add_erlang_noise, "params": [
+        {"name": "a", "min": 0.01, "max": 1.0, "default": 0.1, "step": 0.01},
+        {"name": "b", "min": 1, "max": 10, "default": 2, "step": 1, "int": True},
+    ], "formula": r"p(z) = \frac{a^b z^{b-1} e^{-az}}{(b-1)!},\ z \ge 0,\quad g = f + z - \frac{b}{a}"},
+    "Ch5 · Add exponential noise":  {"fn": add_exponential_noise, "params": [{"name": "a", "min": 0.01, "max": 1.0, "default": 0.1, "step": 0.01}], "formula": r"p(z) = a e^{-az},\ z \ge 0,\quad g = f + z - \frac{1}{a}"},
+    "Ch5 · Add Rayleigh noise":     {"fn": add_rayleigh_noise, "params": [{"name": "b", "min": 10, "max": 2000, "default": 200, "step": 10, "int": True}], "formula": r"p(z) = \frac{2}{b}(z-a) e^{-(z-a)^2/b},\ z \ge a,\quad g = f + z - \tfrac{1}{2}\sqrt{\pi b}"},
+    "Ch5 · Add Poisson noise":      {"fn": add_poisson_noise, "params": [{"name": "mu", "min": 1, "max": 200, "default": 50, "step": 1, "int": True}], "formula": r"p(z) = \frac{e^{-\mu} \mu^z}{z!},\ z \ge 0,\quad g = f + z - \mu"},
     "Ch5 · Arithmetic mean":       {"fn": arithmetic_mean, "params": [KERNEL], "formula": r"\hat f = \frac{1}{k^2} \sum_{(s,t) \in S_{xy}} f(s,t)"},
     "Ch5 · Geometric mean":        {"fn": geometric_mean, "params": [KERNEL], "formula": r"\hat f = \left( \prod_{(s,t) \in S_{xy}} f(s,t) \right)^{1/k^2}"},
     "Ch5 · Harmonic mean":         {"fn": harmonic_mean, "params": [KERNEL], "formula": r"\hat f = \frac{k^2}{\sum_{(s,t) \in S_{xy}} \frac{1}{f(s,t)}}"},
@@ -447,6 +563,37 @@ def demo():
     assert order_statistic(x, "max", 3)[1, 1] == 8
     assert order_statistic(x, "midpoint", 3)[1, 1] == 4
     assert np.abs(_alpha_trimmed(x, 3, 0.25)[1, 1] - 4) <= 1
+
+    # Ch2 - resolution & depth
+    big = np.arange(64, dtype=np.uint8).reshape(8, 8)
+    assert downsample(big, 2).shape == (8, 8)
+    assert downsample(big, 2)[1, 1] == big[0, 0]        # nearest-neighbor blocks
+    assert downsample(big, 4)[3, 3] == big[0, 0]
+    assert downsample(big, 6).shape == (8, 8)           # non-divisor f keeps size
+    assert downsample(big, 6)[0, 0] == big[0, 0] and downsample(big, 6)[7, 7] == big[6, 6]
+    assert bit_depth_reduce(np.full((3, 3), 100, np.uint8), 8).max() == 100  # b=8 -> identity
+    assert bit_depth_reduce(np.full((3, 3), 200, np.uint8), 1)[0, 0] == 255  # b=1 -> binary
+    assert bit_depth_reduce(np.full((3, 3), 100, np.uint8), 1)[0, 0] == 0
+
+    # new noise types: zero-mean, stats within tolerance
+    np.random.seed(0)
+    base = np.full((200, 200), 128, np.uint8)
+    assert np.abs(add_uniform_noise(base, 50).astype(float) - 128).max() <= 50
+    assert np.abs(add_erlang_noise(base, 0.1, 2).astype(float).mean() - 128) < 2
+    assert np.abs(add_exponential_noise(base, 0.1).astype(float).mean() - 128) < 2
+    assert np.abs(add_rayleigh_noise(base, 200).astype(float).mean() - 128) < 2
+    assert np.abs(add_poisson_noise(base, 50).astype(float).mean() - 128) < 2
+
+    # new metrics + entropy
+    a = np.arange(16, dtype=float).reshape(4, 4); b = a + 10
+    assert me(a, b) == 10.0
+    assert abs(nmse(a, b) - np.sum((a - b) ** 2) / np.sum(a ** 2)) < 1e-9
+    assert abs(covariance(a, b) - np.mean((a - a.mean()) * (b - b.mean()))) < 1e-9
+    assert abs(correlation(a, b) - 1.0) < 1e-9            # perfect linear -> rho = 1
+    assert jaccard(a, a) == 1.0
+    assert jaccard(a, b) == 0.0
+    assert entropy(np.full((8, 8), 5, np.uint8)) == 0.0    # constant -> 0 bits
+    assert abs(entropy(np.arange(256, dtype=np.uint8).reshape(16, 16)) - 8.0) < 1e-6  # uniform histogram -> 8 bits
 
     assert all(f.get("formula") for f in FILTERS.values())
     print(f"filters OK ({len(FILTERS)} filters)")

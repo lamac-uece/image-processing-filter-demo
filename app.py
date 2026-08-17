@@ -11,9 +11,9 @@ means no value can ever be out of bounds.
 
 import gradio as gr
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
-from filters import FILTERS, ERROR_METRICS
+from filters import FILTERS, ERROR_METRICS, entropy
 
 FIRST = list(FILTERS)[0]
 MAX_PARAMS = max(len(f["params"]) for f in FILTERS.values())
@@ -65,7 +65,7 @@ def apply(img, name, values):
 
 
 def error_pdf_image(gray, result, width=560, height=320, bins=48):
-    """2D bar chart of e = result - gray, rendered in pure numpy."""
+    """2D bar chart of e = result - gray, rendered in pure numpy, labels via PIL."""
     e = (result.astype(np.float64) - gray.astype(np.float64)).ravel()
     lo, hi = float(e.min()), float(e.max())
     if hi - lo < 1e-9:
@@ -73,21 +73,37 @@ def error_pdf_image(gray, result, width=560, height=320, bins=48):
     counts, _ = np.histogram(e, bins=bins, range=(lo, hi))
     hmax = counts.max() or 1
 
+    top, bottom, side = 16, 34, 8        # margins reserving room for labels
+    plot_h = height - top - bottom
+    plot_w = width - 2 * side
     canvas = np.full((height, width, 3), (14, 16, 22), dtype=np.uint8)
     blue = np.array((86, 168, 255), dtype=np.uint8)
 
-    m = 8                                  # margin around the plot
-    plot_h = height - 2 * m
-    bw = (width - 2 * m) / bins
+    bw = plot_w / bins
+    base = height - bottom
     for i, c in enumerate(counts):
         if c == 0:
             continue
         h = max(2, int(round(c / hmax * (plot_h - 2))))
-        x0 = m + int(i * bw)
-        x1 = m + int((i + 1) * bw) - 1
-        canvas[height - m - h:height - m, x0:x1 + 1] = blue
-    canvas[height - m - 1, m:width - m] = (110, 120, 140)   # baseline
-    return canvas, (lo, hi, float(e.mean()), float(e.std()))
+        x0 = side + int(i * bw)
+        x1 = side + int((i + 1) * bw) - 1
+        canvas[base - h:base, x0:x1 + 1] = blue
+    canvas[base - 1, side:width - side] = (110, 120, 140)   # baseline
+
+    # axis labels
+    pil = Image.fromarray(canvas)
+    d = ImageDraw.Draw(pil)
+    font = ImageFont.load_default(size=12)
+    small = ImageFont.load_default(size=10)
+    grey = (190, 200, 220)
+    d.text((side, top - 14), f"count (max {hmax})", font=small, fill=grey)
+    d.text((side, base + 4), f"{lo:.0f}", font=small, fill=grey)
+    tw = d.textlength(f"{hi:.0f}", font=small)
+    d.text((width - side - tw, base + 4), f"{hi:.0f}", font=small, fill=grey)
+    name = "error = result - input"
+    tw2 = d.textlength(name, font=font)
+    d.text((int((width - tw2) / 2), base + 18), name, font=font, fill=(210, 220, 240))
+    return np.asarray(pil), (lo, hi, float(e.mean()), float(e.std()))
 
 
 def _fmt(v):
@@ -102,6 +118,8 @@ def metrics_markdown(gray, result, rng):
     rows.append(f"| error mean | {mean:.4f} |")
     rows.append(f"| error std | {std:.4f} |")
     rows.append(f"| error range | [{lo:.2f}, {hi:.2f}] |")
+    rows.append(f"| entropy (input) | {entropy(gray):.4f} |")
+    rows.append(f"| entropy (result) | {entropy(result):.4f} |")
     return "\n".join(rows)
 
 

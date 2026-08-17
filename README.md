@@ -14,7 +14,7 @@ Opens a Gradio UI: pick a filter from the dropdown, adjust the sliders, see a li
 
 ## Filters
 
-32 filters in `filters.py`, registered data-driven in `FILTERS` (name → function, params, and LaTeX formula shown in the UI). Self-check: `python filters.py`.
+42 filters in `filters.py` (Ch2 resolution/depth, Ch3 intensity/spatial, Ch4 frequency, Ch5 noise/restoration), registered data-driven in `FILTERS` (name → function, params, and LaTeX formula shown in the UI). Self-check: `python filters.py`.
 
 ## Files
 

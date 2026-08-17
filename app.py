@@ -282,7 +282,7 @@ def make_tab_select(chapter):
     def on_tab(img, current, vals):
         if current in CH_FILTERS[chapter]:
             return (gr.update(value=current), current, *[gr.update()] * MAX_PARAMS,
-                    vals, *[gr.update()] * 10)
+                    vals, *[gr.update()] * 11)
         name = CH_FILTERS[chapter][0]
         return gr.update(value=name), *choose(img, name)
     return on_tab

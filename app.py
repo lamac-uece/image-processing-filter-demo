@@ -17,7 +17,10 @@ import gradio as gr
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from filters import CAPTIONS, FILTERS, ERROR_METRICS, PRESETS, entropy
+from filters import (
+    CAPTIONS, FILTERS, ERROR_METRICS, PRESETS, entropy,
+    me, rmse, mae, nmse, psnr, snr, correlation, jaccard,
+)
 
 FIRST = list(FILTERS)[0]
 MAX_PARAMS = max(len(f["params"]) for f in FILTERS.values())
@@ -159,9 +162,87 @@ def _fmt(v):
     return "∞" if v == float("inf") else f"{v:.4f}"
 
 
+def verdict(psnr):
+    """Color-coded quality verdict from PSNR (dB)."""
+    if psnr == float("inf"):
+        return "🟢 Perfect (identical)"
+    if psnr >= 40:
+        return "🟢 Excellent"
+    if psnr >= 30:
+        return "🟢 Good"
+    if psnr >= 25:
+        return "🟡 Fair"
+    if psnr >= 20:
+        return "🟠 Poor"
+    return "🔴 Very poor"
+
+
+_METRIC_ROWS = [  # (label, fn, reference, family) — bar = value/reference, clipped
+    ("ME",        me,   255.0, "err"),
+    ("RMSE",      rmse, 255.0, "err"),
+    ("MAE",       mae,  255.0, "err"),
+    ("NMSE",      nmse, 1.0,   "err"),
+    ("error mean", None, 255.0, "err"),
+    ("error std", None, 255.0, "err"),
+    ("PSNR",      psnr, 50.0,  "qual"),
+    ("SNR",       snr,  50.0,  "qual"),
+    ("Corr",      correlation, 1.0, "qual"),
+    ("Jaccard",   jaccard, 1.0, "qual"),
+]
+
+
+def metrics_bars(gray, result, rng, width=560, height=320):
+    """Horizontal bar chart of the error/quality metrics, each normalized to a
+    fixed reference so magnitudes are comparable across filters."""
+    lo, hi, mean, std = rng
+    values = {}
+    for label, fn, ref, _family in _METRIC_ROWS:
+        v = fn(gray, result) if fn is not None else (abs(mean) if label == "error mean" else std)
+        values[label] = v
+    colors = {"err": (240, 140, 90), "qual": (120, 210, 140)}
+
+    top, bottom, side = 12, 12, 8
+    rows = len(_METRIC_ROWS)
+    row_h = (height - top - bottom) / rows
+    label_w, value_w, bar_x0 = 100, 46, 108
+    bar_x1 = width - side - value_w
+    canvas = np.full((height, width, 3), (14, 16, 22), dtype=np.uint8)
+
+    for i, (label, _f, ref, family) in enumerate(_METRIC_ROWS):
+        v = values[label]
+        if v == float("inf") or np.isnan(v):
+            frac = 1.0
+        else:
+            frac = min(v / ref, 1.0)
+        y0 = int(top + i * row_h)
+        y1 = int(top + (i + 1) * row_h) - 1
+        ym = (y0 + y1) // 2
+        color = np.array(colors[family], dtype=np.uint8)
+        if frac > 0:
+            x1 = int(bar_x0 + frac * (bar_x1 - bar_x0))
+            canvas[y0:y1 + 1, bar_x0:x1] = color
+        # baseline tick at full scale
+        canvas[y0:y1 + 1, bar_x1] = (110, 120, 140)
+
+    # labels + values via PIL
+    pil = Image.fromarray(canvas)
+    d = ImageDraw.Draw(pil)
+    font = ImageFont.load_default(size=12)
+    small = ImageFont.load_default(size=10)
+    grey = (210, 220, 240)
+    for i, (label, _f, ref, _family) in enumerate(_METRIC_ROWS):
+        y = int(top + i * row_h + row_h / 2 - 7)
+        d.text((side, y), label, font=small, fill=grey)
+        v = values[label]
+        txt = "∞" if v == float("inf") else (f"{v:.2f}" if v < 100 else f"{v:.0f}")
+        tw = d.textlength(txt, font=small)
+        d.text((bar_x1 - tw - 4, y), txt, font=small, fill=(190, 200, 220))
+    return np.asarray(pil)
+
+
 def metrics_markdown(gray, result, rng):
     lo, hi, mean, std = rng
-    rows = ["| measure | value |", "|---|---|"]
+    rows = [f"**Verdict: {verdict(psnr(gray, result))}**", "", "| measure | value |", "|---|---|"]
     for label, fn, _ in ERROR_METRICS:
         rows.append(f"| {label} | {_fmt(fn(gray, result))} |")
     rows.append(f"| error mean | {mean:.4f} |")
@@ -182,10 +263,10 @@ def share_md(name, vals, base=None):
 
 
 def render_all(img, name, vals, base=None):
-    """Apply filter and build every output panel. Returns 8 values."""
+    """Apply filter and build every output panel. Returns 9 values."""
     gray, result = apply(img, name, vals)
     if result is None:
-        return (None,) * 8
+        return (None,) * 9
     pdf, rng = error_pdf_image(gray, result)
     return (
         result,
@@ -193,6 +274,7 @@ def render_all(img, name, vals, base=None):
         hist_image(result, (86, 168, 255)),
         diff_map(gray, result),
         pdf,
+        metrics_bars(gray, result, rng),
         metrics_markdown(gray, result, rng),
         _params_md(name, vals),
         share_md(name, vals, base),
@@ -282,7 +364,7 @@ def make_tab_select(chapter):
     def on_tab(img, current, vals):
         if current in CH_FILTERS[chapter]:
             return (gr.update(value=current), current, *[gr.update()] * MAX_PARAMS,
-                    vals, *[gr.update()] * 11)
+                    vals, *[gr.update()] * 12)
         name = CH_FILTERS[chapter][0]
         return gr.update(value=name), *choose(img, name)
     return on_tab
@@ -351,21 +433,23 @@ with gr.Blocks(title="Image Filter Demo") as demo:
         hist_out = gr.Image(label="Result histogram", type="numpy", format="png")
     with gr.Row():
         pdf = gr.Image(label="Error PDF (histogram of result − input)", type="numpy", format="png")
+        bars = gr.Image(label="Error metrics (bars: value / reference)", type="numpy", format="png")
+    with gr.Row():
         diff = gr.Image(label="Difference |result − input|", type="numpy", format="png")
-    metrics = gr.Markdown("")
+        metrics = gr.Markdown("")
     current = gr.State(FIRST)
 
     # output lists (must match each handler's return order)
     CHOOSE_OUT = [current, *sliders, vals, formula, caption, presets,
-                  out, hist_in, hist_out, diff, pdf, metrics, params, share]
-    RENDER_OUT = [out, hist_in, hist_out, diff, pdf, metrics, params, share]
+                  out, hist_in, hist_out, diff, pdf, bars, metrics, params, share]
+    RENDER_OUT = [out, hist_in, hist_out, diff, pdf, bars, metrics, params, share]
     PRESET_OUT = [*sliders, vals, *RENDER_OUT]
     LOAD_OUT = [*CHOOSE_OUT, *dropdowns.values()]
 
     for ch, dd in dropdowns.items():
         dd.change(choose, [inp, dd], CHOOSE_OUT)
         tab_out = [dd, current, *sliders, vals, formula, caption, presets,
-                   out, hist_in, hist_out, diff, pdf, metrics, params, share]
+                   out, hist_in, hist_out, diff, pdf, bars, metrics, params, share]
         tabs[ch].select(make_tab_select(ch), [inp, current, vals], tab_out)
     for i, s in enumerate(sliders):
         s.change(make_adjust(i), [inp, current, vals, s], [*RENDER_OUT, vals])

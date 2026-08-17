@@ -435,6 +435,123 @@ ERROR_METRICS = [
 
 
 # ---------------------------------------------------------------------------
+# classroom metadata: one-line captions (PT) and parameter presets per filter
+# ---------------------------------------------------------------------------
+
+CAPTIONS = {
+    "Ch2 · Downsample (resolution)": "Reduz a resolução espacial (blocos f×f) — quanto maior f, mais pixelado.",
+    "Ch2 · Bit-depth reduction": "Diminui os níveis de cinza de 2⁸ para 2ᵇ — bandas visíveis com b baixo.",
+    "Ch3 · Negative": "Inverte as intensidades: preto vira branco e vice-versa.",
+    "Ch3 · Log transform": "Clareia as sombras comprimindo os claros — útil para grande faixa dinâmica.",
+    "Ch3 · Power-law (gamma)": "γ<1 clareia as sombras, γ>1 escurece — o ajuste de gama dos monitores.",
+    "Ch3 · Contrast stretch": "Expande o intervalo [lo, hi] para [0, 255] — realça o contraste da faixa escolhida.",
+    "Ch3 · Histogram equalization": "Reespalha os níveis de cinza para usar todo o intervalo — equaliza o histograma.",
+    "Ch3 · Bit-plane slicing": "Isola um dos 8 bits de cada pixel — planos altos dão a forma, baixos o detalhe fino.",
+    "Ch3 · Box (mean)": "Média aritmética na janela k×k — suaviza/borra (passa-baixa).",
+    "Ch3 · Weighted average": "Média ponderada (peso maior no centro) — suaviza preservando mais detalhe.",
+    "Ch3 · Gaussian blur": "Convolução com núcleo gaussiano — borramento suave, base da redução de ruído.",
+    "Ch3 · Laplacian": "Segunda derivada — destaca bordas; a escala controla a intensidade.",
+    "Ch3 · Sobel": "Magnitude do gradiente — realça contornos nas duas direções.",
+    "Ch3 · Prewitt": "Como o Sobel, com pesos uniformes — mais simples, um pouco menos robusto.",
+    "Ch3 · Unsharp masking": "Soma o detalhe (f − borrado) à imagem — nitidez; amount controla a força.",
+    "Ch3 · High-boost": "f = A·original − borrado — A>1 enfatiza bordas, A<1 suaviza.",
+    "Ch4 · Ideal low-pass": "Corta as frequências acima de D₀ de uma vez — borra e pode criar anéis (ringing).",
+    "Ch4 · Ideal high-pass": "Mantém só as altas frequências — realça bordas e remove o fundo.",
+    "Ch4 · Butterworth low-pass": "Transição suave controlada por n — menos ringing que o ideal.",
+    "Ch4 · Butterworth high-pass": "Passa-alta com transição suave — bordas sem o anel do filtro ideal.",
+    "Ch4 · Gaussian low-pass": "Atenuação gaussiana — borrado suave sem ringing.",
+    "Ch4 · Gaussian high-pass": "Passa-alta gaussiano — bordas e texturas finas, fundo escuro.",
+    "Ch4 · FFT magnitude": "Espectro de Fourier (escala log): o centro é a baixa frequência (brilho global).",
+    "Ch4 · FFT phase": "Fase do espectro — carrega a estrutura/posição das bordas.",
+    "Ch4 · FFT power spectrum": "|F|² em escala log — ênfase nas frequências dominantes.",
+    "Ch4 · DCT (2D)": "Cosseno 2D (usada no JPEG) — energia concentrada nos primeiros coeficientes.",
+    "Ch5 · Add Gaussian noise": "Soma ruído gaussiano N(0, σ) — o modelo clássico de ruído eletrônico.",
+    "Ch5 · Add salt-and-pepper": "Pixels aleatórios viram 0 ou 255 — o ruído impulsivo das fotos antigas.",
+    "Ch5 · Add uniform noise": "Ruído uniforme em [−A, A] — todos os valores com a mesma probabilidade.",
+    "Ch5 · Add Erlang (gamma) noise": "Ruído com distribuição Erlang/gama (a = taxa, b = forma) — assimétrico.",
+    "Ch5 · Add exponential noise": "Ruído exponencial — caso particular da Erlang com b = 1.",
+    "Ch5 · Add Rayleigh noise": "Ruído de Rayleigh (parâmetro b) — típico de radar/ultrassom.",
+    "Ch5 · Add Poisson noise": "Ruído de Poisson (intensidade µ) — inerente à contagem de fótons em baixa luz.",
+    "Ch5 · Arithmetic mean": "Média na janela — remove ruído gaussiano, mas borra as bordas.",
+    "Ch5 · Geometric mean": "Média geométrica — remove gaussiano preservando um pouco mais de detalhe.",
+    "Ch5 · Harmonic mean": "Média harmônica — ótima contra pepper, ruim contra salt.",
+    "Ch5 · Contraharmonic mean": "Q>0 remove pepper, Q<0 remove salt — generaliza a média.",
+    "Ch5 · Median": "Mediana na janela — a campeã contra sal-e-pimenta, preserva bordas.",
+    "Ch5 · Min": "Mínimo na janela — remove salt (pontos brancos).",
+    "Ch5 · Max": "Máximo na janela — remove pepper (pontos pretos).",
+    "Ch5 · Midpoint": "Média entre mínimo e máximo — útil para ruído uniforme/gaussiano.",
+    "Ch5 · Alpha-trimmed": "Descarta os α/2 menores e maiores antes da média — meio-termo entre média e mediana.",
+}
+
+PRESETS = {
+    "Ch2 · Downsample (resolution)": [
+        {"label": "256×256 (f=2)", "values": {"f": 2}},
+        {"label": "128×128 (f=4)", "values": {"f": 4}},
+        {"label": "32×32 (f=16)", "values": {"f": 16}},
+    ],
+    "Ch2 · Bit-depth reduction": [
+        {"label": "b=1 (preto/branco)", "values": {"b": 1}},
+        {"label": "b=4 (16 níveis)", "values": {"b": 4}},
+    ],
+    "Ch3 · Power-law (gamma)": [
+        {"label": "γ=0.4 (clareia)", "values": {"gamma": 0.4}},
+        {"label": "γ=2.5 (escurece)", "values": {"gamma": 2.5}},
+    ],
+    "Ch3 · Contrast stretch": [
+        {"label": "identidade (0–255)", "values": {"lo": 0, "hi": 255}},
+        {"label": "foco no meio (64–192)", "values": {"lo": 64, "hi": 192}},
+    ],
+    "Ch3 · Bit-plane slicing": [
+        {"label": "plano 7 (MSB)", "values": {"plane": 7}},
+        {"label": "plano 0 (LSB)", "values": {"plane": 0}},
+    ],
+    "Ch3 · Box (mean)": [{"label": "k=3", "values": {"k": 3}}, {"label": "k=15", "values": {"k": 15}}],
+    "Ch3 · Weighted average": [{"label": "k=3", "values": {"k": 3}}, {"label": "k=15", "values": {"k": 15}}],
+    "Ch3 · Gaussian blur": [
+        {"label": "suave (σ=1, k=7)", "values": {"sigma": 1.0, "k": 7}},
+        {"label": "forte (σ=5, k=21)", "values": {"sigma": 5.0, "k": 21}},
+    ],
+    "Ch3 · Laplacian": [{"label": "scale=1", "values": {"scale": 1.0}}, {"label": "scale=3", "values": {"scale": 3.0}}],
+    "Ch3 · Unsharp masking": [
+        {"label": "leve (amount=1)", "values": {"sigma": 2.0, "amount": 1.0, "k": 9}},
+        {"label": "forte (amount=3)", "values": {"sigma": 2.0, "amount": 3.0, "k": 15}},
+    ],
+    "Ch3 · High-boost": [
+        {"label": "A=1.5", "values": {"sigma": 2.0, "A": 1.5, "k": 9}},
+        {"label": "A=2.5", "values": {"sigma": 2.0, "A": 2.5, "k": 15}},
+    ],
+    "Ch4 · Ideal low-pass": [{"label": "estreito (D₀=0.05)", "values": {"D_0": 0.05}}, {"label": "largo (D₀=0.3)", "values": {"D_0": 0.3}}],
+    "Ch4 · Ideal high-pass": [{"label": "estreito (D₀=0.05)", "values": {"D_0": 0.05}}, {"label": "largo (D₀=0.3)", "values": {"D_0": 0.3}}],
+    "Ch4 · Butterworth low-pass": [{"label": "D₀=0.05", "values": {"D_0": 0.05}}, {"label": "D₀=0.3", "values": {"D_0": 0.3}}],
+    "Ch4 · Butterworth high-pass": [{"label": "D₀=0.05", "values": {"D_0": 0.05}}, {"label": "D₀=0.3", "values": {"D_0": 0.3}}],
+    "Ch4 · Gaussian low-pass": [{"label": "D₀=0.05", "values": {"D_0": 0.05}}, {"label": "D₀=0.3", "values": {"D_0": 0.3}}],
+    "Ch4 · Gaussian high-pass": [{"label": "D₀=0.05", "values": {"D_0": 0.05}}, {"label": "D₀=0.3", "values": {"D_0": 0.3}}],
+    "Ch5 · Add Gaussian noise": [{"label": "σ=10", "values": {"sigma": 10}}, {"label": "σ=50", "values": {"sigma": 50}}],
+    "Ch5 · Add salt-and-pepper": [{"label": "p=0.05", "values": {"p": 0.05}}, {"label": "p=0.3", "values": {"p": 0.3}}],
+    "Ch5 · Add uniform noise": [{"label": "A=10", "values": {"A": 10}}, {"label": "A=60", "values": {"A": 60}}],
+    "Ch5 · Add Erlang (gamma) noise": [
+        {"label": "a=0.2, b=2", "values": {"a": 0.2, "b": 2}},
+        {"label": "a=0.05, b=5", "values": {"a": 0.05, "b": 5}},
+    ],
+    "Ch5 · Add exponential noise": [{"label": "a=0.2", "values": {"a": 0.2}}, {"label": "a=0.05", "values": {"a": 0.05}}],
+    "Ch5 · Add Rayleigh noise": [{"label": "b=50", "values": {"b": 50}}, {"label": "b=800", "values": {"b": 800}}],
+    "Ch5 · Add Poisson noise": [{"label": "µ=10", "values": {"mu": 10}}, {"label": "µ=150", "values": {"mu": 150}}],
+    "Ch5 · Arithmetic mean": [{"label": "k=3", "values": {"k": 3}}, {"label": "k=15", "values": {"k": 15}}],
+    "Ch5 · Geometric mean": [{"label": "k=3", "values": {"k": 3}}, {"label": "k=15", "values": {"k": 15}}],
+    "Ch5 · Harmonic mean": [{"label": "k=3", "values": {"k": 3}}, {"label": "k=15", "values": {"k": 15}}],
+    "Ch5 · Contraharmonic mean": [
+        {"label": "Q=1.5 (remove pepper)", "values": {"k": 9, "Q": 1.5}},
+        {"label": "Q=−1.5 (remove salt)", "values": {"k": 9, "Q": -1.5}},
+    ],
+    "Ch5 · Median": [{"label": "k=3", "values": {"k": 3}}, {"label": "k=15", "values": {"k": 15}}],
+    "Ch5 · Min": [{"label": "k=3", "values": {"k": 3}}, {"label": "k=15", "values": {"k": 15}}],
+    "Ch5 · Max": [{"label": "k=3", "values": {"k": 3}}, {"label": "k=15", "values": {"k": 15}}],
+    "Ch5 · Midpoint": [{"label": "k=3", "values": {"k": 3}}, {"label": "k=15", "values": {"k": 15}}],
+    "Ch5 · Alpha-trimmed": [{"label": "k=3", "values": {"k": 3, "alpha": 0.25}}, {"label": "k=15", "values": {"k": 15, "alpha": 0.25}}],
+}
+
+
+# ---------------------------------------------------------------------------
 # registry
 # ---------------------------------------------------------------------------
 
@@ -596,6 +713,15 @@ def demo():
     assert abs(entropy(np.arange(256, dtype=np.uint8).reshape(16, 16)) - 8.0) < 1e-6  # uniform histogram -> 8 bits
 
     assert all(f.get("formula") for f in FILTERS.values())
+    assert set(CAPTIONS) == set(FILTERS), "every filter needs a caption"
+    for fname, presets in PRESETS.items():
+        assert fname in FILTERS, fname
+        names = {p["name"] for p in FILTERS[fname]["params"]}
+        for pr in presets:
+            assert pr["label"] and set(pr["values"]) <= names, (fname, pr)
+            for k, v in pr["values"].items():
+                p = next(x for x in FILTERS[fname]["params"] if x["name"] == k)
+                assert p["min"] <= v <= p["max"], (fname, k, v)
     print(f"filters OK ({len(FILTERS)} filters)")
 
 

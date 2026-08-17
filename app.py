@@ -69,7 +69,7 @@ with gr.Blocks(title="Image Filter Demo") as demo:
     vals = gr.State(None)
     with gr.Row():
         inp = gr.Image(label="Input image", type="numpy")
-        out = gr.Image(label="Result", type="numpy")
+        out = gr.Image(label="Result", type="numpy", format="png")
     current = gr.State(FIRST)
 
     name.change(choose, [inp, name], [current, *sliders, vals, formula, out])

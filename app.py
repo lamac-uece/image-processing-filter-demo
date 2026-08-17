@@ -42,7 +42,7 @@ def choose(img, name):
         else:
             updates.append(gr.update(visible=False))
     vals = defaults_for(name)
-    return name, *updates, vals, run_filter(img, name, vals)
+    return name, *updates, vals, f"$$ {FILTERS[name]['formula']} $$", run_filter(img, name, vals)
 
 
 def make_adjust(i):
@@ -64,6 +64,7 @@ def on_img(img, name, vals):
 with gr.Blocks(title="Image Filter Demo") as demo:
     gr.Markdown("# Image Filter Demo\nFilters from Gonzalez & Woods, *Digital Image Processing* (4th ed.)")
     name = gr.Dropdown(list(FILTERS), label="Filter", value=FIRST)
+    formula = gr.Markdown(f"$$ {FILTERS[FIRST]['formula']} $$")
     sliders = [gr.Slider(0, 1, value=0, visible=False) for _ in range(MAX_PARAMS)]
     vals = gr.State(None)
     with gr.Row():
@@ -71,11 +72,11 @@ with gr.Blocks(title="Image Filter Demo") as demo:
         out = gr.Image(label="Result", type="numpy")
     current = gr.State(FIRST)
 
-    name.change(choose, [inp, name], [current, *sliders, vals, out])
+    name.change(choose, [inp, name], [current, *sliders, vals, formula, out])
     for i, s in enumerate(sliders):
         s.change(make_adjust(i), [inp, current, vals, s], [out, vals])
     inp.change(on_img, [inp, current, vals], [out])
-    demo.load(choose, [inp, name], [current, *sliders, vals, out])
+    demo.load(choose, [inp, name], [current, *sliders, vals, formula, out])
 
 if __name__ == "__main__":
     demo.launch()

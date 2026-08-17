@@ -1,7 +1,8 @@
 """Image filters from Gonzalez & Woods, Digital Image Processing (4th ed.).
 
 All filters take a uint8 2D grayscale array and return a uint8 array.
-FILTERS[name] = {"fn": fn(img, **params) -> uint8, "params": [param dicts]}
+FILTERS[name] = {"fn": fn(img, **params) -> uint8, "params": [param dicts],
+                 "formula": LaTeX string rendered below the filter dropdown}
 param dict: {"name", "min", "max", "default", "step", "int"?}
 """
 
@@ -266,45 +267,45 @@ ORDER   = {"name": "order", "min": 1, "max": 10, "default": 2, "step": 1, "int":
 
 FILTERS = {
     # Ch3 - intensity
-    "Ch3 · Negative":              {"fn": negative, "params": []},
-    "Ch3 · Log transform":         {"fn": log_transform, "params": []},
-    "Ch3 · Power-law (gamma)":     {"fn": power_law, "params": [{"name": "gamma", "min": 0.1, "max": 5.0, "default": 0.4, "step": 0.1}]},
+    "Ch3 · Negative":              {"fn": negative, "params": [], "formula": r"s = 255 - r"},
+    "Ch3 · Log transform":         {"fn": log_transform, "params": [], "formula": r"s = c\,\log(1 + r),\qquad c = \frac{255}{\ln 256}"},
+    "Ch3 · Power-law (gamma)":     {"fn": power_law, "params": [{"name": "gamma", "min": 0.1, "max": 5.0, "default": 0.4, "step": 0.1}], "formula": r"s = 255\left(\frac{r}{255}\right)^{\gamma}"},
     "Ch3 · Contrast stretch":      {"fn": contrast_stretch, "params": [
         {"name": "lo", "min": 0, "max": 127, "default": 0, "step": 1, "int": True},
         {"name": "hi", "min": 128, "max": 255, "default": 255, "step": 1, "int": True},
-    ]},
-    "Ch3 · Histogram equalization": {"fn": hist_eq, "params": []},
-    "Ch3 · Bit-plane slicing":     {"fn": bit_plane, "params": [{"name": "plane", "min": 0, "max": 7, "default": 7, "step": 1, "int": True}]},
+    ], "formula": r"s = 255\,\frac{r - lo}{hi - lo},\quad s \in [0, 255]"},
+    "Ch3 · Histogram equalization": {"fn": hist_eq, "params": [], "formula": r"s_k = 255 \sum_{j=0}^{k} p_r(r_j),\qquad p_r(r_j) = \frac{n_j}{MN}"},
+    "Ch3 · Bit-plane slicing":     {"fn": bit_plane, "params": [{"name": "plane", "min": 0, "max": 7, "default": 7, "step": 1, "int": True}], "formula": r"s = 255 \cdot \left( \left\lfloor \frac{r}{2^{plane}} \right\rfloor \bmod 2 \right)"},
     # Ch3 - smoothing
-    "Ch3 · Box (mean)":            {"fn": box_filter, "params": [KERNEL]},
-    "Ch3 · Weighted average":      {"fn": weighted_average, "params": [KERNEL]},
-    "Ch3 · Gaussian blur":         {"fn": gaussian_blur, "params": [SIGMA, GKERNEL]},
+    "Ch3 · Box (mean)":            {"fn": box_filter, "params": [KERNEL], "formula": r"g(x,y) = \frac{1}{k^2} \sum_{(s,t) \in S_{xy}} f(s,t)"},
+    "Ch3 · Weighted average":      {"fn": weighted_average, "params": [KERNEL], "formula": r"g(x,y) = \frac{\sum_{(s,t) \in S_{xy}} w(s,t)\, f(s,t)}{\sum w},\quad w(i) = \frac{k+1}{2} - \left| i - \frac{k-1}{2} \right|"},
+    "Ch3 · Gaussian blur":         {"fn": gaussian_blur, "params": [SIGMA, GKERNEL], "formula": r"g = f \ast G,\qquad G(x,y) = \frac{1}{2\pi\sigma^2}\, e^{-\frac{x^2+y^2}{2\sigma^2}}"},
     # Ch3 - sharpening
-    "Ch3 · Laplacian":             {"fn": laplacian, "params": [{"name": "scale", "min": 0.1, "max": 5.0, "default": 1.0, "step": 0.1}]},
-    "Ch3 · Sobel":                 {"fn": sobel, "params": []},
-    "Ch3 · Prewitt":               {"fn": prewitt, "params": []},
-    "Ch3 · Unsharp masking":       {"fn": unsharp_masking, "params": [SIGMA, {"name": "amount", "min": 0.1, "max": 5.0, "default": 1.0, "step": 0.1}, GKERNEL]},
-    "Ch3 · High-boost":            {"fn": high_boost, "params": [SIGMA, {"name": "A", "min": 1.0, "max": 3.0, "default": 1.5, "step": 0.1}, GKERNEL]},
+    "Ch3 · Laplacian":             {"fn": laplacian, "params": [{"name": "scale", "min": 0.1, "max": 5.0, "default": 1.0, "step": 0.1}], "formula": r"\nabla^2 f = \frac{\partial^2 f}{\partial x^2} + \frac{\partial^2 f}{\partial y^2},\qquad g = 128 + scale \cdot \nabla^2 f"},
+    "Ch3 · Sobel":                 {"fn": sobel, "params": [], "formula": r"G = \sqrt{G_x^2 + G_y^2},\quad G_x = \begin{bmatrix} -1 & 0 & 1 \\ -2 & 0 & 2 \\ -1 & 0 & 1 \end{bmatrix} \ast f,\ G_y = \begin{bmatrix} -1 & -2 & -1 \\ 0 & 0 & 0 \\ 1 & 2 & 1 \end{bmatrix} \ast f"},
+    "Ch3 · Prewitt":               {"fn": prewitt, "params": [], "formula": r"G = \sqrt{G_x^2 + G_y^2},\quad G_x = \begin{bmatrix} -1 & 0 & 1 \\ -1 & 0 & 1 \\ -1 & 0 & 1 \end{bmatrix} \ast f,\ G_y = \begin{bmatrix} -1 & -1 & -1 \\ 0 & 0 & 0 \\ 1 & 1 & 1 \end{bmatrix} \ast f"},
+    "Ch3 · Unsharp masking":       {"fn": unsharp_masking, "params": [SIGMA, {"name": "amount", "min": 0.1, "max": 5.0, "default": 1.0, "step": 0.1}, GKERNEL], "formula": r"g = f + amount\,(f - \bar f)"},
+    "Ch3 · High-boost":            {"fn": high_boost, "params": [SIGMA, {"name": "A", "min": 1.0, "max": 3.0, "default": 1.5, "step": 0.1}, GKERNEL], "formula": r"g = A\, f - \bar f"},
     # Ch4 - frequency
-    "Ch4 · Ideal low-pass":        {"fn": _freq_filter("ideal", False), "params": [CUTOFF]},
-    "Ch4 · Ideal high-pass":       {"fn": _freq_filter("ideal", True), "params": [CUTOFF]},
-    "Ch4 · Butterworth low-pass":  {"fn": _freq_filter("butterworth", False), "params": [CUTOFF, ORDER]},
-    "Ch4 · Butterworth high-pass": {"fn": _freq_filter("butterworth", True), "params": [CUTOFF, ORDER]},
-    "Ch4 · Gaussian low-pass":     {"fn": _freq_filter("gaussian", False), "params": [CUTOFF]},
-    "Ch4 · Gaussian high-pass":    {"fn": _freq_filter("gaussian", True), "params": [CUTOFF]},
-    "Ch4 · FFT magnitude":         {"fn": fft_magnitude, "params": []},
+    "Ch4 · Ideal low-pass":        {"fn": _freq_filter("ideal", False), "params": [CUTOFF], "formula": r"H(u,v) = \begin{cases} 1 & D(u,v) \le D_0 \\ 0 & \text{otherwise} \end{cases}"},
+    "Ch4 · Ideal high-pass":       {"fn": _freq_filter("ideal", True), "params": [CUTOFF], "formula": r"H(u,v) = \begin{cases} 1 & D(u,v) > D_0 \\ 0 & \text{otherwise} \end{cases}"},
+    "Ch4 · Butterworth low-pass":  {"fn": _freq_filter("butterworth", False), "params": [CUTOFF, ORDER], "formula": r"H(u,v) = \frac{1}{1 + \left( D(u,v)/D_0 \right)^{2n}}"},
+    "Ch4 · Butterworth high-pass": {"fn": _freq_filter("butterworth", True), "params": [CUTOFF, ORDER], "formula": r"H(u,v) = 1 - \frac{1}{1 + \left( D(u,v)/D_0 \right)^{2n}}"},
+    "Ch4 · Gaussian low-pass":     {"fn": _freq_filter("gaussian", False), "params": [CUTOFF], "formula": r"H(u,v) = e^{-D^2(u,v)/(2D_0^2)}"},
+    "Ch4 · Gaussian high-pass":    {"fn": _freq_filter("gaussian", True), "params": [CUTOFF], "formula": r"H(u,v) = 1 - e^{-D^2(u,v)/(2D_0^2)}"},
+    "Ch4 · FFT magnitude":         {"fn": fft_magnitude, "params": [], "formula": r"\log\left( 1 + |F(u,v)| \right)"},
     # Ch5 - noise + restoration
-    "Ch5 · Add Gaussian noise":    {"fn": add_gaussian_noise, "params": [{"name": "sigma", "min": 1, "max": 100, "default": 20, "step": 1, "int": True}]},
-    "Ch5 · Add salt-and-pepper":   {"fn": add_salt_pepper, "params": [{"name": "prob", "min": 0.01, "max": 0.5, "default": 0.05, "step": 0.01}]},
-    "Ch5 · Arithmetic mean":       {"fn": arithmetic_mean, "params": [KERNEL]},
-    "Ch5 · Geometric mean":        {"fn": geometric_mean, "params": [KERNEL]},
-    "Ch5 · Harmonic mean":         {"fn": harmonic_mean, "params": [KERNEL]},
-    "Ch5 · Contraharmonic mean":   {"fn": contraharmonic_mean, "params": [KERNEL, {"name": "Q", "min": -1.5, "max": 1.5, "default": 1.5, "step": 0.1}]},
-    "Ch5 · Median":                {"fn": partial(order_statistic, kind="median"), "params": [KERNEL]},
-    "Ch5 · Min":                   {"fn": partial(order_statistic, kind="min"), "params": [KERNEL]},
-    "Ch5 · Max":                   {"fn": partial(order_statistic, kind="max"), "params": [KERNEL]},
-    "Ch5 · Midpoint":              {"fn": partial(order_statistic, kind="midpoint"), "params": [KERNEL]},
-    "Ch5 · Alpha-trimmed":         {"fn": _alpha_trimmed, "params": [KERNEL, {"name": "alpha", "min": 0.05, "max": 0.45, "default": 0.25, "step": 0.05}]},
+    "Ch5 · Add Gaussian noise":    {"fn": add_gaussian_noise, "params": [{"name": "sigma", "min": 1, "max": 100, "default": 20, "step": 1, "int": True}], "formula": r"g = f + \sigma\,\varepsilon,\qquad \varepsilon \sim \mathcal{N}(0,1)"},
+    "Ch5 · Add salt-and-pepper":   {"fn": add_salt_pepper, "params": [{"name": "prob", "min": 0.01, "max": 0.5, "default": 0.05, "step": 0.01}], "formula": r"g = \begin{cases} 0 & \text{pepper (prob } p/2\text{)} \\ 255 & \text{salt (prob } p/2\text{)} \\ f & \text{otherwise} \end{cases}"},
+    "Ch5 · Arithmetic mean":       {"fn": arithmetic_mean, "params": [KERNEL], "formula": r"\hat f = \frac{1}{k^2} \sum_{(s,t) \in S_{xy}} f(s,t)"},
+    "Ch5 · Geometric mean":        {"fn": geometric_mean, "params": [KERNEL], "formula": r"\hat f = \left( \prod_{(s,t) \in S_{xy}} f(s,t) \right)^{1/k^2}"},
+    "Ch5 · Harmonic mean":         {"fn": harmonic_mean, "params": [KERNEL], "formula": r"\hat f = \frac{k^2}{\sum_{(s,t) \in S_{xy}} \frac{1}{f(s,t)}}"},
+    "Ch5 · Contraharmonic mean":   {"fn": contraharmonic_mean, "params": [KERNEL, {"name": "Q", "min": -1.5, "max": 1.5, "default": 1.5, "step": 0.1}], "formula": r"\hat f = \frac{\sum_{(s,t) \in S_{xy}} f(s,t)^{Q+1}}{\sum_{(s,t) \in S_{xy}} f(s,t)^{Q}}"},
+    "Ch5 · Median":                {"fn": partial(order_statistic, kind="median"), "params": [KERNEL], "formula": r"\hat f = \operatorname*{median}_{(s,t) \in S_{xy}} \{ f(s,t) \}"},
+    "Ch5 · Min":                   {"fn": partial(order_statistic, kind="min"), "params": [KERNEL], "formula": r"\hat f = \min_{(s,t) \in S_{xy}} \{ f(s,t) \}"},
+    "Ch5 · Max":                   {"fn": partial(order_statistic, kind="max"), "params": [KERNEL], "formula": r"\hat f = \max_{(s,t) \in S_{xy}} \{ f(s,t) \}"},
+    "Ch5 · Midpoint":              {"fn": partial(order_statistic, kind="midpoint"), "params": [KERNEL], "formula": r"\hat f = \tfrac{1}{2}\left( \min_{S_{xy}}\{ f \} + \max_{S_{xy}}\{ f \} \right)"},
+    "Ch5 · Alpha-trimmed":         {"fn": _alpha_trimmed, "params": [KERNEL, {"name": "alpha", "min": 0.05, "max": 0.45, "default": 0.25, "step": 0.05}], "formula": r"\hat f = \frac{1}{k^2 - 2T} \sum_{i=T+1}^{k^2-T} f_{(i)},\qquad T = \left\lfloor \frac{\alpha k^2}{2} \right\rfloor"},
 }
 
 
@@ -348,6 +349,7 @@ def demo():
     assert order_statistic(x, "midpoint", 3)[1, 1] == 4
     assert np.abs(_alpha_trimmed(x, 3, 0.25)[1, 1] - 4) <= 1
 
+    assert all(f.get("formula") for f in FILTERS.values())
     print(f"filters OK ({len(FILTERS)} filters)")
 
 

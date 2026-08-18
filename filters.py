@@ -255,45 +255,52 @@ def dct2_magnitude(img, **kwargs):
 # Ch5 - noise + restoration
 # ---------------------------------------------------------------------------
 
-def add_gaussian_noise(img, sigma=20, **kwargs):
-    return _to_uint8(np.asarray(img, dtype=float) + np.random.randn(*img.shape) * sigma)
+def add_gaussian_noise(img, sigma=20, seed=0, **kwargs):
+    rng = np.random.RandomState(int(seed))
+    return _to_uint8(np.asarray(img, dtype=float) + rng.randn(*img.shape) * sigma)
 
 
-def add_salt_pepper(img, p=0.05, **kwargs):
+def add_salt_pepper(img, p=0.05, seed=0, **kwargs):
+    rng = np.random.RandomState(int(seed))
     out = np.asarray(img).copy()
-    mask = np.random.random(img.shape) < p
-    sp = np.random.random(img.shape) < 0.5
+    mask = rng.random(img.shape) < p
+    sp = rng.random(img.shape) < 0.5
     out[mask & sp] = 0
     out[mask & ~sp] = 255
     return out
 
 
-def add_uniform_noise(img, A=30, **kwargs):
+def add_uniform_noise(img, A=30, seed=0, **kwargs):
     """Zero-mean uniform noise in [-A, A] (handout: p(z) = 1/(2A))."""
-    return _to_uint8(np.asarray(img, dtype=float) + np.random.uniform(-A, A, img.shape))
+    rng = np.random.RandomState(int(seed))
+    return _to_uint8(np.asarray(img, dtype=float) + rng.uniform(-A, A, img.shape))
 
 
-def add_erlang_noise(img, a=0.1, b=2, **kwargs):
+def add_erlang_noise(img, a=0.1, b=2, seed=0, **kwargs):
     """Zero-mean Erlang/Gamma noise: shape b, rate a (handout: mean b/a)."""
-    z = np.random.gamma(b, 1.0 / a, img.shape) - b / a
+    rng = np.random.RandomState(int(seed))
+    z = rng.gamma(b, 1.0 / a, img.shape) - b / a
     return _to_uint8(np.asarray(img, dtype=float) + z)
 
 
-def add_exponential_noise(img, a=0.1, **kwargs):
+def add_exponential_noise(img, a=0.1, seed=0, **kwargs):
     """Zero-mean exponential noise, rate a (Erlang with b=1; mean 1/a)."""
-    z = np.random.exponential(1.0 / a, img.shape) - 1.0 / a
+    rng = np.random.RandomState(int(seed))
+    z = rng.exponential(1.0 / a, img.shape) - 1.0 / a
     return _to_uint8(np.asarray(img, dtype=float) + z)
 
 
-def add_rayleigh_noise(img, b=200, **kwargs):
+def add_rayleigh_noise(img, b=200, seed=0, **kwargs):
     """Zero-mean Rayleigh noise (handout: scale sigma = sqrt(b/2), mean sqrt(pi*b)/2)."""
-    z = np.random.rayleigh(np.sqrt(b / 2.0), img.shape) - 0.5 * np.sqrt(np.pi * b)
+    rng = np.random.RandomState(int(seed))
+    z = rng.rayleigh(np.sqrt(b / 2.0), img.shape) - 0.5 * np.sqrt(np.pi * b)
     return _to_uint8(np.asarray(img, dtype=float) + z)
 
 
-def add_poisson_noise(img, mu=50, **kwargs):
+def add_poisson_noise(img, mu=50, seed=0, **kwargs):
     """Zero-mean Poisson noise, intensity mu (mean = variance = mu)."""
-    z = np.random.poisson(mu, img.shape).astype(np.float64) - mu
+    rng = np.random.RandomState(int(seed))
+    z = rng.poisson(mu, img.shape).astype(np.float64) - mu
     return _to_uint8(np.asarray(img, dtype=float) + z)
 
 
@@ -560,6 +567,7 @@ GKERNEL = {"name": "k", "min": 3, "max": 31, "default": 9, "step": 2, "int": Tru
 SIGMA   = {"name": "sigma", "min": 0.5, "max": 10, "default": 2.0, "step": 0.1}
 CUTOFF  = {"name": "D_0", "min": 0.01, "max": 0.5, "default": 0.1, "step": 0.01}
 ORDER   = {"name": "n", "min": 1, "max": 10, "default": 2, "step": 1, "int": True}
+SEED    = {"name": "seed", "min": 0, "max": 99, "default": 0, "step": 1, "int": True}
 
 FILTERS = {
     # Ch2 - resolution & depth (handout exercises)
@@ -597,16 +605,17 @@ FILTERS = {
     "Ch4 · FFT power spectrum":    {"fn": fft_power, "params": [], "formula": r"P(u,v) = |F(u,v)|^2,\qquad \log\left( 1 + P \right)"},
     "Ch4 · DCT (2D)":              {"fn": dct2_magnitude, "params": [], "formula": r"C(u,v) = \frac{2}{\sqrt{MN}}\, c_u c_v \sum_{x,y} f(x,y) \cos\frac{\pi u(2x+1)}{2M} \cos\frac{\pi v(2y+1)}{2N},\qquad \log(1+|C|)"},
     # Ch5 - noise + restoration
-    "Ch5 · Add Gaussian noise":    {"fn": add_gaussian_noise, "params": [{"name": "sigma", "min": 1, "max": 100, "default": 20, "step": 1, "int": True}], "formula": r"g = f + \sigma\,\varepsilon,\qquad \varepsilon \sim \mathcal{N}(0,1)"},
-    "Ch5 · Add salt-and-pepper":   {"fn": add_salt_pepper, "params": [{"name": "p", "min": 0.01, "max": 0.5, "default": 0.05, "step": 0.01}], "formula": r"g = \begin{cases} 0 & \text{pepper (prob } p/2\text{)} \\ 255 & \text{salt (prob } p/2\text{)} \\ f & \text{otherwise} \end{cases}"},
-    "Ch5 · Add uniform noise":      {"fn": add_uniform_noise, "params": [{"name": "A", "min": 1, "max": 100, "default": 30, "step": 1, "int": True}], "formula": r"p(z) = \frac{1}{2A},\ z \in [-A, A],\quad g = f + z"},
+    "Ch5 · Add Gaussian noise":    {"fn": add_gaussian_noise, "params": [{"name": "sigma", "min": 1, "max": 100, "default": 20, "step": 1, "int": True}, SEED], "formula": r"g = f + \sigma\,\varepsilon,\qquad \varepsilon \sim \mathcal{N}(0,1)"},
+    "Ch5 · Add salt-and-pepper":   {"fn": add_salt_pepper, "params": [{"name": "p", "min": 0.01, "max": 0.5, "default": 0.05, "step": 0.01}, SEED], "formula": r"g = \begin{cases} 0 & \text{pepper (prob } p/2\text{)} \\ 255 & \text{salt (prob } p/2\text{)} \\ f & \text{otherwise} \end{cases}"},
+    "Ch5 · Add uniform noise":      {"fn": add_uniform_noise, "params": [{"name": "A", "min": 1, "max": 100, "default": 30, "step": 1, "int": True}, SEED], "formula": r"p(z) = \frac{1}{2A},\ z \in [-A, A],\quad g = f + z"},
     "Ch5 · Add Erlang (gamma) noise": {"fn": add_erlang_noise, "params": [
         {"name": "a", "min": 0.01, "max": 1.0, "default": 0.1, "step": 0.01},
         {"name": "b", "min": 1, "max": 10, "default": 2, "step": 1, "int": True},
+        SEED,
     ], "formula": r"p(z) = \frac{a^b z^{b-1} e^{-az}}{(b-1)!},\ z \ge 0,\quad g = f + z - \frac{b}{a}"},
-    "Ch5 · Add exponential noise":  {"fn": add_exponential_noise, "params": [{"name": "a", "min": 0.01, "max": 1.0, "default": 0.1, "step": 0.01}], "formula": r"p(z) = a e^{-az},\ z \ge 0,\quad g = f + z - \frac{1}{a}"},
-    "Ch5 · Add Rayleigh noise":     {"fn": add_rayleigh_noise, "params": [{"name": "b", "min": 10, "max": 2000, "default": 200, "step": 10, "int": True}], "formula": r"p(z) = \frac{2}{b}(z-a) e^{-(z-a)^2/b},\ z \ge a,\quad g = f + z - \tfrac{1}{2}\sqrt{\pi b}"},
-    "Ch5 · Add Poisson noise":      {"fn": add_poisson_noise, "params": [{"name": "mu", "min": 1, "max": 200, "default": 50, "step": 1, "int": True}], "formula": r"p(z) = \frac{e^{-\mu} \mu^z}{z!},\ z \ge 0,\quad g = f + z - \mu"},
+    "Ch5 · Add exponential noise":  {"fn": add_exponential_noise, "params": [{"name": "a", "min": 0.01, "max": 1.0, "default": 0.1, "step": 0.01}, SEED], "formula": r"p(z) = a e^{-az},\ z \ge 0,\quad g = f + z - \frac{1}{a}"},
+    "Ch5 · Add Rayleigh noise":     {"fn": add_rayleigh_noise, "params": [{"name": "b", "min": 10, "max": 2000, "default": 200, "step": 10, "int": True}, SEED], "formula": r"p(z) = \frac{2}{b}(z-a) e^{-(z-a)^2/b},\ z \ge a,\quad g = f + z - \tfrac{1}{2}\sqrt{\pi b}"},
+    "Ch5 · Add Poisson noise":      {"fn": add_poisson_noise, "params": [{"name": "mu", "min": 1, "max": 200, "default": 50, "step": 1, "int": True}, SEED], "formula": r"p(z) = \frac{e^{-\mu} \mu^z}{z!},\ z \ge 0,\quad g = f + z - \mu"},
     "Ch5 · Arithmetic mean":       {"fn": arithmetic_mean, "params": [KERNEL], "formula": r"\hat f = \frac{1}{k^2} \sum_{(s,t) \in S_{xy}} f(s,t)"},
     "Ch5 · Geometric mean":        {"fn": geometric_mean, "params": [KERNEL], "formula": r"\hat f = \left( \prod_{(s,t) \in S_{xy}} f(s,t) \right)^{1/k^2}"},
     "Ch5 · Harmonic mean":         {"fn": harmonic_mean, "params": [KERNEL], "formula": r"\hat f = \frac{k^2}{\sum_{(s,t) \in S_{xy}} \frac{1}{f(s,t)}}"},

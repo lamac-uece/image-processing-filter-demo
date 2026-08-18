@@ -24,6 +24,7 @@ from filters import (
 
 FIRST = list(FILTERS)[0]
 MAX_PARAMS = max(len(f["params"]) for f in FILTERS.values())
+NONE = "— (none) —"
 
 CHAPTERS = [
     ("Ch2", "Ch2 · Basics"),
@@ -54,6 +55,8 @@ def _actual(p, v):
 
 
 def _params_md(name, values):
+    if name == NONE:
+        return ""
     params = FILTERS[name]["params"]
     if not params:
         return ""
@@ -77,6 +80,19 @@ def apply(img, name, values):
     params = FILTERS[name]["params"]
     kwargs = {p["name"]: _actual(p, values[i]) for i, p in enumerate(params)}
     return gray, FILTERS[name]["fn"](gray, **kwargs)
+
+
+def apply_stack(img, stack):
+    """Apply an ordered stack of filters: RGB numpy in -> (gray uint8, result uint8)."""
+    if img is None:
+        return None, None
+    gray = _gray(img)
+    result = gray
+    for entry in stack or []:
+        params = FILTERS[entry["name"]]["params"]
+        kwargs = {p["name"]: _actual(p, entry["vals"][i]) for i, p in enumerate(params)}
+        result = FILTERS[entry["name"]]["fn"](result, **kwargs)
+    return gray, result
 
 
 # ---------------------------------------------------------------------------
@@ -253,18 +269,55 @@ def metrics_markdown(gray, result, rng):
     return "\n".join(rows)
 
 
-def share_md(name, vals, base=None):
+def _stack_to_qp(stack):
+    """Query-string fields that encode an ordered filter stack."""
+    q = {"stack": str(len(stack or []))}
+    for i, entry in enumerate(stack or []):
+        q[f"s{i}"] = entry["name"]
+        for j in range(len(FILTERS[entry["name"]]["params"])):
+            q[f"s{i}p{j}"] = f"{float(entry['vals'][j]):.3f}"
+    return q
+
+
+def _stack_md(stack):
+    """Render the ordered filter stack as Markdown."""
+    stack = stack or []
+    if not stack:
+        return "**Stack:** _(empty — the current filter previews below)_"
+    n = len(stack)
+    lines = [f"**Stack ({n} filter{'s' if n != 1 else ''}, applied in order):**", ""]
+    for i, entry in enumerate(stack, 1):
+        params = FILTERS[entry["name"]]["params"]
+        if params:
+            parts = [f"{p['name']}={_actual(p, entry['vals'][j]):g}"
+                     for j, p in enumerate(params)]
+            detail = ", ".join(parts)
+        else:
+            detail = "no params"
+        lines.append(f"{i}. **{entry['name']}** — {detail}")
+    return "\n".join(lines)
+
+
+def share_md(name, vals, stack, base=None):
     """Deep link query string (or full URL when base host is known)."""
-    q = urlencode({"filter": name, **{
-        f"p{i}": f"{float(vals[i]):.3f}" for i in range(len(FILTERS[name]["params"]))
-    }})
-    full = f"{base}/?{q}" if base else f"?{q}"
+    q = {}
+    if name != NONE:
+        q["filter"] = name
+        q.update({f"p{i}": f"{float(vals[i]):.3f}" for i in range(len(FILTERS[name]["params"]))})
+    q.update(_stack_to_qp(stack))
+    full = f"{base}/?{urlencode(q)}" if base else f"?{urlencode(q)}"
     return f"**Deep link:** `{full}`"
 
 
-def render_all(img, name, vals, base=None):
-    """Apply filter and build every output panel. Returns 9 values."""
-    gray, result = apply(img, name, vals)
+def render_all(img, name, vals, base=None, stack=None):
+    """Apply the active pipeline = committed stack with the current filter on top,
+    then build every output panel. Returns 9 values."""
+    if name != NONE and not vals:
+        vals = defaults_for(name)
+    chain = list(stack or [])
+    if name != NONE:
+        chain.append({"name": name, "vals": vals})
+    gray, result = apply_stack(img, chain)
     if result is None:
         return (None,) * 9
     pdf, rng = error_pdf_image(gray, result)
@@ -277,7 +330,7 @@ def render_all(img, name, vals, base=None):
         metrics_bars(gray, result, rng),
         metrics_markdown(gray, result, rng),
         _params_md(name, vals),
-        share_md(name, vals, base),
+        share_md(name, vals, stack, base),
     )
 
 
@@ -312,34 +365,50 @@ def _presets_update(name):
     return gr.update(choices=[p["label"] for p in presets], value=None, visible=bool(presets))
 
 
-def choose(img, name, base=None):
-    """Dropdown changed: reset state to this filter's defaults, show its sliders."""
-    vals = defaults_for(name)
+def choose(img, name, stack=None, base=None):
+    """Dropdown changed: make `name` the current (top) filter and re-render the
+    live chain = committed stack + current filter."""
+    if name == NONE:
+        vals = []
+        slider_updates = [gr.update(visible=False)] * MAX_PARAMS
+        formula = "*(no filter selected — showing the committed stack)*"
+        caption = "Pick a filter to stack it on top of the current result."
+        presets_update = gr.update(visible=False)
+    else:
+        vals = defaults_for(name)
+        slider_updates = _slider_updates(name)
+        formula = f"$$ {FILTERS[name]['formula']} $$"
+        caption = f"💡 {CAPTIONS[name]}"
+        presets_update = _presets_update(name)
     return (
-        name, *_slider_updates(name), vals,
-        f"$$ {FILTERS[name]['formula']} $$", f"💡 {CAPTIONS[name]}", _presets_update(name),
-        *render_all(img, name, vals, base),
+        name, *slider_updates, vals,
+        formula, caption, presets_update,
+        *render_all(img, name, vals, base, stack),
     )
 
 
 def make_adjust(i):
     """One handler per slider: only this slider's own (normalized) value feeds the filter."""
-    def on_change(img, name, vals, v, base=None):
+    def on_change(img, name, vals, v, stack=None):
+        if name == NONE:
+            return *render_all(img, NONE, [], None, stack), []
         vals = list(vals) if vals else defaults_for(name)
         vals[i] = v
-        return *render_all(img, name, vals, base), vals
+        return *render_all(img, name, vals, None, stack), vals
     return on_change
 
 
-def on_img(img, name, vals, base=None):
-    """New image: re-run the current filter with the current slider values."""
-    if not vals:
+def on_img(img, name, vals, stack=None):
+    """New image: re-run the active pipeline with the current slider values."""
+    if not vals and name != NONE:
         vals = defaults_for(name)
-    return render_all(img, name, vals, base)
+    return render_all(img, name, vals, None, stack)
 
 
-def on_preset(img, name, vals, label, base=None):
+def on_preset(img, name, vals, label, stack=None):
     """Apply a preset: set sliders from PRESETS[name], re-render."""
+    if name == NONE:
+        return (*[gr.update()] * MAX_PARAMS, [], *render_all(img, NONE, [], None, stack))
     vals = list(vals) if vals else defaults_for(name)
     for pr in PRESETS.get(name, []):
         if pr["label"] == label:
@@ -351,56 +420,112 @@ def on_preset(img, name, vals, label, base=None):
         gr.update(value=vals[i]) if i < len(FILTERS[name]["params"]) else gr.update()
         for i in range(MAX_PARAMS)
     ]
-    return *slider_updates, vals, *render_all(img, name, vals, base)
+    return *slider_updates, vals, *render_all(img, name, vals, None, stack)
 
 
-def on_reset(img, name, base=None):
-    """Reset to this filter's defaults."""
-    return choose(img, name, base)
+def on_reset(img, name, stack=None):
+    """Reset to this filter's defaults (stack is preserved)."""
+    return choose(img, name, stack, None)
+
+
+def _stack_render(img, name, vals, stack, base=None):
+    """Re-render after a stack mutation. Returns the stack-mutation output tuple."""
+    return (*render_all(img, name, vals, base, stack), stack, _stack_md(stack))
+
+
+def on_add(img, name, vals, stack):
+    """Commit the current filter into the stack, then clear the current filter."""
+    stack = list(stack or [])
+    if name != NONE:
+        vals = list(vals) if vals else defaults_for(name)
+        stack.append({"name": name, "vals": vals[:]})
+    dd = [gr.update(value=NONE) for _ in CHAPTERS]
+    sliders_upd = [gr.update(visible=False)] * MAX_PARAMS
+    return (*dd, NONE, *sliders_upd, [],
+            "*(no filter selected — showing the committed stack)*",
+            "Pick a filter to stack it on top of the current result.",
+            gr.update(visible=False),
+            *render_all(img, NONE, [], None, stack),
+            stack, _stack_md(stack))
+
+
+def on_pop(img, name, vals, stack):
+    """Drop the last committed filter from the stack."""
+    vals = list(vals) if vals else (defaults_for(name) if name != NONE else [])
+    stack = list(stack or [])
+    if stack:
+        stack.pop()
+    return _stack_render(img, name, vals, stack)
+
+
+def on_clear(img, name, vals, stack):
+    """Empty the committed stack (the current filter, if any, stays on top)."""
+    vals = list(vals) if vals else (defaults_for(name) if name != NONE else [])
+    return _stack_render(img, name, vals, [])
 
 
 def make_tab_select(chapter):
-    """Tab clicked: jump to the chapter's first filter, or sync if current is here."""
-    def on_tab(img, current, vals):
-        if current in CH_FILTERS[chapter]:
-            return (gr.update(value=current), current, *[gr.update()] * MAX_PARAMS,
-                    vals, *[gr.update()] * 12)
-        name = CH_FILTERS[chapter][0]
-        return gr.update(value=name), *choose(img, name)
+    """Tab clicked: sync this chapter's dropdown to the current filter (or none)."""
+    def on_tab(img, current, vals, stack):
+        value = current if current in CH_FILTERS[chapter] else NONE
+        return (gr.update(value=value), current, *[gr.update()] * MAX_PARAMS,
+                vals, *[gr.update()] * 12)
     return on_tab
 
 
 def _parse_deep_link(qp):
-    """(?filter=...&p0=...&p1=...) -> (name, vals) or (None, None)."""
-    name = qp.get("filter")
-    if name not in FILTERS:
-        return None, None
-    vals = defaults_for(name)
-    for i in range(MAX_PARAMS):
-        if f"p{i}" in qp:
-            try:
-                vals[i] = min(max(float(qp[f"p{i}"]), 0.0), 1.0)
-            except ValueError:
-                pass
-    return name, vals
+    """(?filter=...&p0=...&stack=n&s0=...&s0p0=...) -> (name, vals, stack)."""
+    raw = qp.get("filter")
+    name = raw if raw in FILTERS else NONE
+    vals = defaults_for(name) if name != NONE else []
+    if name != NONE:
+        for i in range(MAX_PARAMS):
+            if f"p{i}" in qp:
+                try:
+                    vals[i] = min(max(float(qp[f"p{i}"]), 0.0), 1.0)
+                except ValueError:
+                    pass
+    stack = []
+    try:
+        n = int(qp.get("stack", "0"))
+    except (TypeError, ValueError):
+        n = 0
+    for i in range(n):
+        sname = qp.get(f"s{i}")
+        if sname not in FILTERS:
+            continue
+        svals = defaults_for(sname)
+        for j in range(MAX_PARAMS):
+            key = f"s{i}p{j}"
+            if key in qp:
+                try:
+                    svals[j] = min(max(float(qp[key]), 0.0), 1.0)
+                except ValueError:
+                    pass
+        stack.append({"name": sname, "vals": svals})
+    return name, vals, stack
 
 
-def on_load(request: gr.Request, img, base=None):
+def _dd_updates(name):
+    """Each chapter dropdown shows `name` if it belongs there, else none."""
+    return [gr.update(value=(name if name in CH_FILTERS[ch] else NONE))
+            for ch, _ in CHAPTERS]
+
+
+def on_load(request: gr.Request, img):
     """Page load: restore state from URL query params (deep link), else defaults."""
+    base = None
     qp = dict(request.query_params) if request else {}
     if request is not None and request.headers:
         host = request.headers.get("host")
         if host:
             base = f"http://{host}"
-    name, vals = _parse_deep_link(qp)
-    if name is None:
+    name, vals, stack = _parse_deep_link(qp)
+    if name == NONE and not stack:
         name = FIRST
         vals = defaults_for(name)
-    dd_updates = [
-        gr.update(value=name if name in CH_FILTERS[ch] else CH_FILTERS[ch][0])
-        for ch, _ in CHAPTERS
-    ]
-    return *choose(img, name, base), *dd_updates
+    dd_updates = _dd_updates(name)
+    return *choose(img, name, stack, base), stack, _stack_md(stack), *dd_updates
 
 
 # ---------------------------------------------------------------------------
@@ -415,16 +540,27 @@ with gr.Blocks(title="Image Filter Demo") as demo:
         for ch, label in CHAPTERS:
             with gr.Tab(label) as tab:
                 tabs[ch] = tab
-                dropdowns[ch] = gr.Dropdown(CH_FILTERS[ch], label="Filter", value=CH_FILTERS[ch][0])
+                dropdowns[ch] = gr.Dropdown([NONE, *CH_FILTERS[ch]], label="Filter", value=CH_FILTERS[ch][0])
     formula = gr.Markdown(f"$$ {FILTERS[FIRST]['formula']} $$")
     caption = gr.Markdown(f"💡 {CAPTIONS[FIRST]}")
     presets = gr.Dropdown([], label="Try a preset", visible=False)
     sliders = [gr.Slider(0, 1, value=0, visible=False) for _ in range(MAX_PARAMS)]
     params = gr.Markdown("")
+    gr.Markdown(
+        "### Filter stack\n"
+        "Pick a filter and tune its sliders — the **Result** previews it applied "
+        "on top of the stack. Press **＋ Add** to commit it."
+    )
+    with gr.Row():
+        add_btn = gr.Button("＋ Add to stack", variant="primary")
+        pop_btn = gr.Button("↩ Remove last")
+        clear_btn = gr.Button("🗑 Clear stack")
+    stack_view = gr.Markdown("**Stack:** _(empty — the current filter previews below)_")
     with gr.Row():
         reset = gr.Button("↺ Reset to defaults")
         share = gr.Markdown("")
     vals = gr.State(None)
+    stack = gr.State([])
     with gr.Row():
         inp = gr.Image(label="Input image", type="numpy")
         out = gr.Image(label="Result", type="numpy", format="png")
@@ -444,18 +580,24 @@ with gr.Blocks(title="Image Filter Demo") as demo:
                   out, hist_in, hist_out, diff, pdf, bars, metrics, params, share]
     RENDER_OUT = [out, hist_in, hist_out, diff, pdf, bars, metrics, params, share]
     PRESET_OUT = [*sliders, vals, *RENDER_OUT]
-    LOAD_OUT = [*CHOOSE_OUT, *dropdowns.values()]
+    STACK_OUT = [*RENDER_OUT, stack, stack_view]
+    ADD_OUT = [*dropdowns.values(), current, *sliders, vals, formula, caption, presets,
+               *RENDER_OUT, stack, stack_view]
+    LOAD_OUT = [*CHOOSE_OUT, stack, stack_view, *dropdowns.values()]
 
     for ch, dd in dropdowns.items():
-        dd.change(choose, [inp, dd], CHOOSE_OUT)
+        dd.change(choose, [inp, dd, stack], CHOOSE_OUT)
         tab_out = [dd, current, *sliders, vals, formula, caption, presets,
                    out, hist_in, hist_out, diff, pdf, bars, metrics, params, share]
-        tabs[ch].select(make_tab_select(ch), [inp, current, vals], tab_out)
+        tabs[ch].select(make_tab_select(ch), [inp, current, vals, stack], tab_out)
     for i, s in enumerate(sliders):
-        s.change(make_adjust(i), [inp, current, vals, s], [*RENDER_OUT, vals])
-    presets.change(on_preset, [inp, current, vals, presets], PRESET_OUT)
-    reset.click(on_reset, [inp, current], CHOOSE_OUT)
-    inp.change(on_img, [inp, current, vals], RENDER_OUT)
+        s.change(make_adjust(i), [inp, current, vals, s, stack], [*RENDER_OUT, vals])
+    presets.change(on_preset, [inp, current, vals, presets, stack], PRESET_OUT)
+    add_btn.click(on_add, [inp, current, vals, stack], ADD_OUT)
+    pop_btn.click(on_pop, [inp, current, vals, stack], STACK_OUT)
+    clear_btn.click(on_clear, [inp, current, vals, stack], STACK_OUT)
+    reset.click(on_reset, [inp, current, stack], CHOOSE_OUT)
+    inp.change(on_img, [inp, current, vals, stack], RENDER_OUT)
     demo.load(on_load, [inp], LOAD_OUT)
 
 if __name__ == "__main__":
